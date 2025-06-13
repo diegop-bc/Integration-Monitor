@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useAuth } from '../contexts/AuthContext'
 import { getFeedItems } from '../services/feedService'
 import { useFeedUpdates } from '../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../utils/textSanitizer'
@@ -7,12 +8,13 @@ import type { FeedItem } from '../types/feed'
 
 const FeedView = () => {
   const { feedId } = useParams<{ feedId: string }>()
+  const { user } = useAuth()
 
-  // Fetch feed items
+  // Fetch feed items with user context
   const { data: itemsData, isLoading, error, refetch } = useQuery({
-    queryKey: ['feedItems', feedId],
+    queryKey: ['feedItems', feedId, user?.id],
     queryFn: () => getFeedItems(feedId!),
-    enabled: !!feedId,
+    enabled: !!feedId && !!user,
   })
 
   // Listen for updates for this specific feed

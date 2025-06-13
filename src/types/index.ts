@@ -45,3 +45,5 @@ export interface RSSFeed {
       end?: Date
     }
   }
+
+export * from './auth';

@@ -4,6 +4,20 @@ import type { Feed, FeedItem, FeedError } from '../types/feed';
 
 export async function addFeed(url: string, integrationName: string, integrationAlias?: string): Promise<{ feed: Feed | null; error?: FeedError }> {
   try {
+    // Get current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return {
+        feed: null,
+        error: {
+          code: 'AUTH_ERROR',
+          message: 'User not authenticated',
+          details: userError,
+        },
+      };
+    }
+
     // First parse the feed to validate it
     const { items, error: parseError } = await parseFeed(url, integrationName, integrationAlias);
     
@@ -11,7 +25,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
       return { feed: null, error: parseError };
     }
 
-    // Create the feed record
+    // Create the feed record with user_id
     const { data: feed, error } = await supabase
       .from('feeds')
       .insert({
@@ -20,6 +34,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
         integration_name: integrationName,
         integration_alias: integrationAlias,
         last_fetched: new Date().toISOString(),
+        user_id: user.id,
       })
       .select()
       .single();
@@ -35,7 +50,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
       };
     }
 
-    // Insert the feed items with the feed_id
+    // Insert the feed items with the feed_id and user_id
     const { error: itemsError } = await supabase
       .from('feed_items')
       .insert(items.map(item => ({
@@ -49,6 +64,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
         integration_name: item.integrationName,
         integration_alias: item.integrationAlias,
         created_at: item.createdAt,
+        user_id: user.id,
       })));
 
     if (itemsError) {

@@ -76,13 +76,11 @@ const FeedItemCard = ({ item, timeAgo }: FeedItemCardProps) => {
             rel="noopener noreferrer"
             className="modern-button"
             style={{
-              opacity: 0,
+              opacity: 1,
               fontSize: '0.875rem',
               padding: '0.5rem 1rem',
               transition: 'all 0.2s ease-in-out'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-            onMouseLeave={(e) => e.currentTarget.style.opacity = '0'}
           >
             <span>View</span>
             <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">

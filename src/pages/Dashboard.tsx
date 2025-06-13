@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useAuth } from '../contexts/AuthContext'
 import { addFeed, getFeeds, getAllFeedItems, updateFeed, deleteFeed } from '../services/feedService'
 import { useFeedUpdates } from '../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../utils/textSanitizer'
 import type { Feed, FeedItem } from '../types/feed'
 
 const Dashboard = () => {
+  const { user } = useAuth()
   const [feedUrl, setFeedUrl] = useState('')
   const [integrationName, setIntegrationName] = useState('')
   const [integrationAlias, setIntegrationAlias] = useState('')
@@ -18,16 +20,18 @@ const Dashboard = () => {
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
-  // Fetch feeds
+  // Fetch feeds with user context
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
-    queryKey: ['feeds'],
+    queryKey: ['feeds', user?.id],
     queryFn: getFeeds,
+    enabled: !!user,
   })
 
-  // Fetch recent feed items
+  // Fetch recent feed items with user context
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
-    queryKey: ['allFeedItems'],
+    queryKey: ['allFeedItems', user?.id],
     queryFn: getAllFeedItems,
+    enabled: !!user,
   })
 
   // Listen for feed updates
@@ -38,8 +42,8 @@ const Dashboard = () => {
     mutationFn: ({ url, name, alias }: { url: string; name: string; alias?: string }) =>
       addFeed(url, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds'] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
       setFeedUrl('')
       setIntegrationName('')
       setIntegrationAlias('')
@@ -52,8 +56,8 @@ const Dashboard = () => {
     mutationFn: ({ id, name, alias }: { id: string; name: string; alias?: string }) =>
       updateFeed(id, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds'] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
       setEditingFeed(null)
       setEditName('')
       setEditAlias('')
@@ -64,8 +68,8 @@ const Dashboard = () => {
   const deleteFeedMutation = useMutation({
     mutationFn: (id: string) => deleteFeed(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds'] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems'] })
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
       setDeletingFeed(null)
     },
   })

@@ -145,6 +145,7 @@ button:focus-visible {
 
 .modern-button:hover {
   background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
+  color: #fff;
   box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
   transform: translateY(-1px);
 }

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '../../contexts/AuthContext';
 import { getAllFeedItems } from '../../services/feedService';
 import { useFeedUpdates, usePaginatedFeedItems, useIntegrations } from '../../hooks/useFeedUpdates';
 import FeedItemCard from './FeedItemCard';
@@ -6,6 +7,7 @@ import type { FeedItem } from '../../types/feed';
 import { useState } from 'react';
 
 const UnifiedFeed = () => {
+  const { user } = useAuth();
   const [selectedIntegration, setSelectedIntegration] = useState<string>('all');
   
   // Get available integrations for filter
@@ -14,10 +16,11 @@ const UnifiedFeed = () => {
   // Use paginated feed items hook with filter
   const { items, loadMore, hasMore, isLoadingMore, totalCount, reset } = usePaginatedFeedItems(20, selectedIntegration === 'all' ? undefined : selectedIntegration);
   
-  // Initial query for loading state and error handling
+  // Initial query for loading state and error handling with user context
   const { isLoading, error, refetch } = useQuery({
-    queryKey: ['allFeedItems'],
+    queryKey: ['allFeedItems', user?.id],
     queryFn: getAllFeedItems,
+    enabled: !!user,
     refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
   });
 

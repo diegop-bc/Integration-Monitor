@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { startFeedUpdates, fetchAllFeedUpdates } from '../services/feedUpdateService';
 import type { FeedItem, FeedError } from '../types/feed';
 
@@ -63,13 +64,14 @@ export function useFeedUpdates(feedId?: string) {
 
 // Hook for paginated feed items
 export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: string) {
+  const { user } = useAuth();
   const [allItems, setAllItems] = useState<FeedItem[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
 
   const loadMore = async () => {
-    if (isLoadingMore || !hasMore) return;
+    if (isLoadingMore || !hasMore || !user) return;
     
     setIsLoadingMore(true);
     const offset = allItems.length;
@@ -101,7 +103,7 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
   };
 
   const loadInitialData = async () => {
-    if (isLoadingMore) return;
+    if (isLoadingMore || !user) return;
     
     setIsLoadingMore(true);
     
@@ -125,11 +127,13 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
     }
   };
 
-  // Reset and load initial data when filter changes
+  // Reset and load initial data when filter changes or user changes
   useEffect(() => {
-    reset();
-    loadInitialData();
-  }, [integrationFilter]);
+    if (user) {
+      reset();
+      loadInitialData();
+    }
+  }, [integrationFilter, user?.id]);
 
   return {
     items: allItems,
@@ -143,11 +147,14 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
 
 // Hook for fetching available integrations
 export function useIntegrations() {
+  const { user } = useAuth();
   const [integrations, setIntegrations] = useState<Array<{ name: string; displayName: string; count: number }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<FeedError | null>(null);
 
   const fetchIntegrations = async () => {
+    if (!user) return;
+    
     setIsLoading(true);
     setError(null);
     
@@ -171,8 +178,12 @@ export function useIntegrations() {
   };
 
   useEffect(() => {
-    fetchIntegrations();
-  }, []);
+    if (user) {
+      fetchIntegrations();
+    } else {
+      setIntegrations([]);
+    }
+  }, [user?.id]);
 
   return {
     integrations,
