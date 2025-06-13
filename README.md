@@ -2,9 +2,9 @@
 
 A modern RSS-based changelog monitoring tool built with React, TypeScript, and Vite. Track updates across all your integrations and third-party services in one unified timeline.
 
-![Integration Monitor](https://img.shields.io/badge/React-18+-blue.svg)
+![Integration Monitor](https://img.shields.io/badge/React-19+-blue.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5+-blue.svg)
-![Vite](https://img.shields.io/badge/Vite-5+-purple.svg)
+![Vite](https://img.shields.io/badge/Vite-6+-purple.svg)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4+-teal.svg)
 
 ## ✨ Features
@@ -45,7 +45,7 @@ A modern RSS-based changelog monitoring tool built with React, TypeScript, and V
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd integrationMonitor
+   cd integration-monitor
    ```
 
 2. **Install dependencies**

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { getRedirectUrl } from '../lib/config';
 
 type AuthMode = 'login' | 'signup';
 
@@ -289,7 +290,7 @@ export default function LoginPage() {
                     // Handle password reset
                     if (email) {
                       supabase.auth.resetPasswordForEmail(email, {
-                        redirectTo: `${window.location.origin}/reset-password`,
+                        redirectTo: getRedirectUrl('/reset-password'),
                       });
                       setMessage('Check your email for password reset instructions');
                     } else {

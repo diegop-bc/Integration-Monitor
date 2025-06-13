@@ -1,8 +1,12 @@
 {
-  "name": "integrationmonitor",
+  "name": "integration-monitor",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Monitor your integrations via RSS Feed - Track updates across all your third-party services in one unified timeline",
   "type": "module",
+  "keywords": ["integration", "monitor", "rss", "feed", "changelog", "api", "monitoring"],
+  "author": "Integration Monitor Team",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
