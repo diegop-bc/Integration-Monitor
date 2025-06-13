@@ -1,7 +1,7 @@
 // Configuration file for environment-based settings
 export const config = {
   // Base URL for the application
-  baseUrl: import.meta.env.VITE_APP_URL || window.location.origin,
+  baseUrl: import.meta.env.VITE_APP_URL,
   
   // Supabase configuration
   supabase: {
@@ -12,6 +12,6 @@ export const config = {
 
 // Helper function to get the correct redirect URL for authentication
 export const getRedirectUrl = (path: string = '') => {
-  const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+  const baseUrl = import.meta.env.VITE_APP_URL;
   return `${baseUrl}${path}`;
 }; 
