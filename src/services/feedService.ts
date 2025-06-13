@@ -232,6 +232,106 @@ export async function getAllFeedItems(): Promise<{ items: FeedItem[]; error?: Fe
   }
 }
 
+export async function getAllFeedItemsPaginated(
+  limit: number = 20, 
+  offset: number = 0,
+  integrationFilter?: string
+): Promise<{ items: FeedItem[]; hasMore: boolean; totalCount: number; error?: FeedError }> {
+  try {
+    // Build query with optional integration filter
+    let countQuery = supabase.from('feed_items').select('*', { count: 'exact', head: true });
+    let itemsQuery = supabase
+      .from('feed_items')
+      .select(`
+        *,
+        feeds!inner(
+          id,
+          title,
+          integration_name,
+          integration_alias,
+          url
+        )
+      `)
+      .order('pub_date', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    // Apply integration filter if provided
+    if (integrationFilter && integrationFilter !== 'all') {
+      countQuery = countQuery.eq('integration_name', integrationFilter);
+      itemsQuery = itemsQuery.eq('integration_name', integrationFilter);
+    }
+
+    // Get total count with filter
+    const { count: totalCount, error: countError } = await countQuery;
+
+    if (countError) {
+      return {
+        items: [],
+        hasMore: false,
+        totalCount: 0,
+        error: {
+          code: 'DB_ERROR',
+          message: countError.message,
+          details: countError,
+        },
+      };
+    }
+
+    // Get paginated items with filter
+    const { data: items, error } = await itemsQuery;
+
+    if (error) {
+      return {
+        items: [],
+        hasMore: false,
+        totalCount: totalCount || 0,
+        error: {
+          code: 'DB_ERROR',
+          message: error.message,
+          details: error,
+        },
+      };
+    }
+
+    const mappedItems = (items || []).map(item => ({
+      id: item.id,
+      title: item.title,
+      link: item.link,
+      content: item.content,
+      contentSnippet: item.content_snippet,
+      pubDate: item.pub_date,
+      integrationName: item.integration_name,
+      integrationAlias: item.integration_alias,
+      createdAt: item.created_at,
+      // Add feed metadata
+      feedInfo: {
+        id: item.feeds.id,
+        title: item.feeds.title,
+        url: item.feeds.url,
+      }
+    }));
+
+    const hasMore = offset + limit < (totalCount || 0);
+
+    return { 
+      items: mappedItems,
+      hasMore,
+      totalCount: totalCount || 0
+    };
+  } catch (error) {
+    return {
+      items: [],
+      hasMore: false,
+      totalCount: 0,
+      error: {
+        code: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'An unknown error occurred',
+        details: error,
+      },
+    };
+  }
+}
+
 export async function updateFeed(id: string, integrationName: string, integrationAlias?: string): Promise<{ feed: Feed | null; error?: FeedError }> {
   try {
     // Update the feed record
@@ -343,6 +443,64 @@ export async function deleteFeed(id: string): Promise<{ success: boolean; error?
   } catch (error) {
     return {
       success: false,
+      error: {
+        code: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'An unknown error occurred',
+        details: error,
+      },
+    };
+  }
+}
+
+// Function to get all available integrations with item counts
+export async function getIntegrationsWithCounts(): Promise<{ 
+  integrations: Array<{ name: string; displayName: string; count: number }>; 
+  error?: FeedError 
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('feed_items')
+      .select('integration_name, integration_alias')
+      .order('integration_name');
+
+    if (error) {
+      return {
+        integrations: [],
+        error: {
+          code: 'DB_ERROR',
+          message: error.message,
+          details: error,
+        },
+      };
+    }
+
+    // Group by integration name and count items
+    const integrationCounts = new Map<string, { displayName: string; count: number }>();
+    
+    (data || []).forEach(item => {
+      const name = item.integration_name;
+      const displayName = item.integration_alias || item.integration_name;
+      
+      if (integrationCounts.has(name)) {
+        integrationCounts.get(name)!.count++;
+      } else {
+        integrationCounts.set(name, { displayName, count: 1 });
+      }
+    });
+
+    // Convert to sorted array
+    const integrations = Array.from(integrationCounts.entries())
+      .map(([name, data]) => ({
+        name,
+        displayName: data.displayName,
+        count: data.count
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    return { integrations };
+  } catch (error) {
+    return {
+      integrations: [],
       error: {
         code: 'UNKNOWN_ERROR',
         message: error instanceof Error ? error.message : 'An unknown error occurred',

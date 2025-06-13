@@ -2,8 +2,8 @@ import type { FeedItem, FeedError } from '../types/feed';
 import { sanitizeHtmlToText } from './textSanitizer';
 
 // For development, we'll use a CORS proxy service
-const isDevelopment = import.meta.env.DEV;
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+const isDevelopment = import.meta.env.DEV || true; // Force development mode temporarily
+const CORS_PROXY = 'https://corsproxy.io/?';
 
 async function parseRSSContent(xmlContent: string, url: string, integrationName: string, integrationAlias?: string): Promise<FeedItem[]> {
   const parser = new DOMParser();
@@ -62,9 +62,40 @@ async function parseRSSContent(xmlContent: string, url: string, integrationName:
 
 export async function parseFeed(url: string, integrationName: string, integrationAlias?: string): Promise<{ items: FeedItem[]; error?: FeedError }> {
   try {
+    console.log('Parsing feed:', { url, integrationName, isDevelopment });
+    
+    // TEMPORARY: Always use CORS proxy to avoid serverless function issues
+    const proxyUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
+    console.log('Using CORS proxy:', proxyUrl);
+    
+    const response = await fetch(proxyUrl);
+    
+    if (!response.ok) {
+      console.error('CORS proxy failed, trying direct fetch...');
+      // Fallback: try direct fetch (might work for some feeds)
+      const directResponse = await fetch(url);
+      if (!directResponse.ok) {
+        throw new Error(`Both proxy and direct fetch failed. HTTP ${response.status}: ${response.statusText}`);
+      }
+      const xmlContent = await directResponse.text();
+      const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
+      console.log('Successfully parsed', items.length, 'items via direct fetch');
+      return { items };
+    }
+    
+    const xmlContent = await response.text();
+    const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
+    
+    console.log('Successfully parsed', items.length, 'items');
+    return { items };
+    
+    // Original conditional logic commented out temporarily
+    /*
     if (isDevelopment) {
       // In development, use CORS proxy and client-side parsing
       const proxyUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
+      console.log('Using CORS proxy:', proxyUrl);
+      
       const response = await fetch(proxyUrl);
       
       if (!response.ok) {
@@ -74,9 +105,12 @@ export async function parseFeed(url: string, integrationName: string, integratio
       const xmlContent = await response.text();
       const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
       
+      console.log('Successfully parsed', items.length, 'items');
       return { items };
     } else {
       // In production, use the serverless function
+      console.log('Using serverless function /api/parse-feed');
+      
       const response = await fetch('/api/parse-feed', {
         method: 'POST',
         headers: {
@@ -90,7 +124,10 @@ export async function parseFeed(url: string, integrationName: string, integratio
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorText = await response.text();
+        console.error('Serverless function error:', errorText);
+        
+        const errorData = await response.json().catch(() => ({ error: { message: errorText } }));
         return {
           items: [],
           error: errorData.error || {
@@ -103,7 +140,9 @@ export async function parseFeed(url: string, integrationName: string, integratio
       const data = await response.json();
       return { items: data.items };
     }
+    */
   } catch (error) {
+    console.error('Feed parsing error:', error);
     const feedError: FeedError = {
       code: 'NETWORK_ERROR',
       message: error instanceof Error ? error.message : 'Failed to fetch feed',

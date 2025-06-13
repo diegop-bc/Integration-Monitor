@@ -1,12 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import { getAllFeedItems } from '../../services/feedService';
-import { useFeedUpdates } from '../../hooks/useFeedUpdates';
+import { useFeedUpdates, usePaginatedFeedItems, useIntegrations } from '../../hooks/useFeedUpdates';
 import FeedItemCard from './FeedItemCard';
 import type { FeedItem } from '../../types/feed';
+import { useState } from 'react';
 
 const UnifiedFeed = () => {
-  // Fetch all feed items
-  const { data: itemsData, isLoading, error, refetch } = useQuery({
+  const [selectedIntegration, setSelectedIntegration] = useState<string>('all');
+  
+  // Get available integrations for filter
+  const { integrations } = useIntegrations();
+  
+  // Use paginated feed items hook with filter
+  const { items, loadMore, hasMore, isLoadingMore, totalCount, reset } = usePaginatedFeedItems(20, selectedIntegration === 'all' ? undefined : selectedIntegration);
+  
+  // Initial query for loading state and error handling
+  const { isLoading, error, refetch } = useQuery({
     queryKey: ['allFeedItems'],
     queryFn: getAllFeedItems,
     refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
@@ -15,11 +24,19 @@ const UnifiedFeed = () => {
   // Listen for new updates across all feeds
   const { newItems } = useFeedUpdates();
 
-  const items = itemsData?.items || [];
-  const totalItems = items.length;
-
   const handleRefresh = () => {
+    reset();
     refetch();
+    // Load first page again
+    setTimeout(() => loadMore(), 100);
+  };
+
+  const handleLoadMore = () => {
+    loadMore();
+  };
+
+  const handleFilterChange = (integration: string) => {
+    setSelectedIntegration(integration);
   };
 
   const getTimeAgo = (dateString: string) => {
@@ -43,6 +60,27 @@ const UnifiedFeed = () => {
     return `${diffInMonths}mo ago`;
   };
 
+  const getIntegrationColor = (integrationName: string) => {
+    // Generate consistent colors based on integration name
+    const colors = [
+      { bg: 'linear-gradient(to right, #3b82f6, #1d4ed8)', text: 'white' },
+      { bg: 'linear-gradient(to right, #10b981, #059669)', text: 'white' },
+      { bg: 'linear-gradient(to right, #8b5cf6, #7c3aed)', text: 'white' },
+      { bg: 'linear-gradient(to right, #f59e0b, #d97706)', text: 'white' },
+      { bg: 'linear-gradient(to right, #ec4899, #db2777)', text: 'white' },
+      { bg: 'linear-gradient(to right, #6366f1, #4f46e5)', text: 'white' },
+      { bg: 'linear-gradient(to right, #ef4444, #dc2626)', text: 'white' },
+      { bg: 'linear-gradient(to right, #eab308, #ca8a04)', text: 'white' },
+    ];
+    
+    const hash = integrationName.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    
+    return colors[Math.abs(hash) % colors.length];
+  };
+
   return (
     <div className="min-h-screen gradient-bg">
       <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -53,7 +91,10 @@ const UnifiedFeed = () => {
               Integration Updates
             </h1>
             <p className="text-blue-200 text-lg">
-              {totalItems} updates from all your integrations
+              {selectedIntegration === 'all' 
+                ? `${totalCount > 0 ? `${totalCount} total updates` : `${items.length} updates`} from all your integrations`
+                : `${totalCount > 0 ? `${totalCount} updates` : `${items.length} updates`} from ${integrations.find(i => i.name === selectedIntegration)?.displayName || selectedIntegration}`
+              }
             </p>
           </div>
           <button 
@@ -67,6 +108,66 @@ const UnifiedFeed = () => {
             {isLoading ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
+
+        {/* Integration Filter */}
+        {integrations.length > 0 && (
+          <div className="modern-card p-6">
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
+              <div className="flex items-center gap-3">
+                <svg className="icon-md text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                <span className="font-semibold text-gray-900">Filter by Integration:</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => handleFilterChange('all')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    selectedIntegration === 'all'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  All Integrations
+                  <span className="ml-2 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                    {integrations.reduce((sum, i) => sum + i.count, 0)}
+                  </span>
+                </button>
+                {integrations.map((integration) => {
+                  const colorScheme = getIntegrationColor(integration.name);
+                  return (
+                    <button
+                      key={integration.name}
+                      onClick={() => handleFilterChange(integration.name)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                        selectedIntegration === integration.name
+                          ? 'ring-2 ring-blue-500 ring-offset-2'
+                          : 'hover:scale-105'
+                      }`}
+                      style={{
+                        background: selectedIntegration === integration.name 
+                          ? colorScheme.bg 
+                          : 'linear-gradient(to right, #f3f4f6, #e5e7eb)',
+                        color: selectedIntegration === integration.name 
+                          ? colorScheme.text 
+                          : '#374151'
+                      }}
+                    >
+                      <div 
+                        className="w-3 h-3 rounded-full"
+                        style={{ background: colorScheme.bg }}
+                      />
+                      {integration.displayName}
+                      <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                        {integration.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* New Items Notification */}
         {newItems.length > 0 && (
@@ -97,7 +198,7 @@ const UnifiedFeed = () => {
 
         {/* Feed Items */}
         <div className="space-y-6">
-          {isLoading ? (
+          {isLoading && items.length === 0 ? (
             <div className="text-center py-16">
               <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
                 <svg className="icon-lg animate-spin text-white" fill="none" viewBox="0 0 24 24">
@@ -131,24 +232,41 @@ const UnifiedFeed = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
                 </svg>
               </div>
-              <h3 className="text-2xl font-semibold text-gray-900 mb-3">No updates yet</h3>
+              <h3 className="text-2xl font-semibold text-gray-900 mb-3">
+                {selectedIntegration === 'all' ? 'No updates yet' : `No updates from ${integrations.find(i => i.name === selectedIntegration)?.displayName || selectedIntegration}`}
+              </h3>
               <p className="text-gray-600 text-lg mb-8 max-w-md mx-auto">
-                Add some RSS feeds to start monitoring integration updates and see them here
+                {selectedIntegration === 'all' 
+                  ? 'Add some RSS feeds to start monitoring integration updates and see them here'
+                  : 'This integration doesn\'t have any updates yet, or try selecting a different integration'
+                }
               </p>
-              <a 
-                href="/"
-                className="modern-button inline-flex items-center gap-2"
-              >
-                <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Add Your First Integration
-              </a>
+              {selectedIntegration === 'all' ? (
+                <a 
+                  href="/"
+                  className="modern-button inline-flex items-center gap-2"
+                >
+                  <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Add Your First Integration
+                </a>
+              ) : (
+                <button 
+                  onClick={() => handleFilterChange('all')}
+                  className="modern-button inline-flex items-center gap-2"
+                >
+                  <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  View All Integrations
+                </button>
+              )}
             </div>
           ) : (
             items.map((item: FeedItem) => (
               <FeedItemCard 
-                key={item.id} 
+                key={`${item.feedInfo?.id || 'unknown'}-${item.id}`} 
                 item={item} 
                 timeAgo={getTimeAgo(item.pubDate)}
               />
@@ -156,12 +274,46 @@ const UnifiedFeed = () => {
           )}
         </div>
 
-        {/* Load More - Placeholder for future pagination */}
-        {items.length > 0 && items.length >= 20 && (
+        {/* Load More Button */}
+        {items.length > 0 && hasMore && (
           <div className="text-center py-8">
-            <button className="px-8 py-3 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-colors font-medium">
-              Load More Updates
+            <button 
+              onClick={handleLoadMore}
+              disabled={isLoadingMore}
+              className="px-8 py-3 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 mx-auto"
+            >
+              {isLoadingMore ? (
+                <>
+                  <svg className="icon-sm animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Loading older updates...
+                </>
+              ) : (
+                <>
+                  <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Load More Updates
+                </>
+              )}
             </button>
+          </div>
+        )}
+
+        {/* End of updates indicator */}
+        {items.length > 0 && !hasMore && (
+          <div className="text-center py-8">
+            <div className="inline-flex items-center gap-2 px-6 py-3 bg-white/5 text-white/60 rounded-xl">
+              <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {selectedIntegration === 'all' 
+                ? "You've reached the end of all updates"
+                : `You've reached the end of ${integrations.find(i => i.name === selectedIntegration)?.displayName || selectedIntegration} updates`
+              }
+            </div>
           </div>
         )}
       </div>
