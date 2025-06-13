@@ -1,4 +1,3 @@
-import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Auth } from '@supabase/auth-ui-react';
 import { ThemeSupa } from '@supabase/auth-ui-shared';
