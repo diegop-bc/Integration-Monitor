@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+import { useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useGroup } from '../../contexts/GroupContext';
 import { getAllFeedItems } from '../../services/feedService';
 import { useFeedUpdates, usePaginatedFeedItems, useIntegrations } from '../../hooks/useFeedUpdates';
 import FeedItemCard from './FeedItemCard';
@@ -8,18 +10,29 @@ import { useState } from 'react';
 
 const UnifiedFeed = () => {
   const { user } = useAuth();
+  const { currentGroup } = useGroup();
+  const params = useParams();
   const [selectedIntegration, setSelectedIntegration] = useState<string>('all');
   
-  // Get available integrations for filter
-  const { integrations } = useIntegrations();
+  // Determine context from URL
+  const isGroupMode = !!params.groupId;
+  const groupId = params.groupId || null;
+  const contextId = isGroupMode ? groupId : null; // null for personal, groupId for group
   
-  // Use paginated feed items hook with filter
-  const { items, loadMore, hasMore, isLoadingMore, totalCount, reset } = usePaginatedFeedItems(20, selectedIntegration === 'all' ? undefined : selectedIntegration);
+  // Get available integrations for filter with context
+  const { integrations } = useIntegrations(contextId);
   
-  // Initial query for loading state and error handling with user context
+  // Use paginated feed items hook with filter and context
+  const { items, loadMore, hasMore, isLoadingMore, totalCount, reset } = usePaginatedFeedItems(
+    20, 
+    selectedIntegration === 'all' ? undefined : selectedIntegration,
+    contextId
+  );
+  
+  // Initial query for loading state and error handling with context
   const { isLoading, error, refetch } = useQuery({
-    queryKey: ['allFeedItems', user?.id],
-    queryFn: getAllFeedItems,
+    queryKey: ['allFeedItems', user?.id, contextId],
+    queryFn: () => getAllFeedItems(contextId),
     enabled: !!user,
     refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
   });
@@ -84,6 +97,26 @@ const UnifiedFeed = () => {
     return colors[Math.abs(hash) % colors.length];
   };
 
+  // Get context title for header
+  const getContextTitle = () => {
+    if (isGroupMode && currentGroup) {
+      return `${currentGroup.name} Updates`;
+    }
+    return 'Integration Updates';
+  };
+
+  const getContextDescription = () => {
+    const updateCount = totalCount > 0 ? totalCount : items.length;
+    const contextName = isGroupMode && currentGroup ? currentGroup.name : 'your integrations';
+    
+    if (selectedIntegration === 'all') {
+      return `${updateCount} total updates from ${contextName}`;
+    }
+    
+    const integrationDisplayName = integrations.find(i => i.name === selectedIntegration)?.displayName || selectedIntegration;
+    return `${updateCount} updates from ${integrationDisplayName} in ${contextName}`;
+  };
+
   return (
     <div className="min-h-screen gradient-bg">
       <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -91,13 +124,10 @@ const UnifiedFeed = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">
-              Integration Updates
+              {getContextTitle()}
             </h1>
             <p className="text-blue-200 text-lg">
-              {selectedIntegration === 'all' 
-                ? `${totalCount > 0 ? `${totalCount} total updates` : `${items.length} updates`} from all your integrations`
-                : `${totalCount > 0 ? `${totalCount} updates` : `${items.length} updates`} from ${integrations.find(i => i.name === selectedIntegration)?.displayName || selectedIntegration}`
-              }
+              {getContextDescription()}
             </p>
           </div>
           <button 

@@ -2,7 +2,12 @@ import { supabase } from '../lib/supabase';
 import { parseFeed } from '../utils/rssParser';
 import type { Feed, FeedItem, FeedError } from '../types/feed';
 
-export async function addFeed(url: string, integrationName: string, integrationAlias?: string): Promise<{ feed: Feed | null; error?: FeedError }> {
+export async function addFeed(
+  url: string, 
+  integrationName: string, 
+  integrationAlias?: string, 
+  groupId?: string | null
+): Promise<{ feed: Feed | null; error?: FeedError }> {
   try {
     // Get current user
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -25,7 +30,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
       return { feed: null, error: parseError };
     }
 
-    // Create the feed record with user_id
+    // Create the feed record with user_id and optional group_id
     const { data: feed, error } = await supabase
       .from('feeds')
       .insert({
@@ -35,6 +40,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
         integration_alias: integrationAlias,
         last_fetched: new Date().toISOString(),
         user_id: user.id,
+        group_id: groupId || null, // NULL for personal feeds, group ID for group feeds
       })
       .select()
       .single();
@@ -50,7 +56,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
       };
     }
 
-    // Insert the feed items with the feed_id and user_id
+    // Insert the feed items with the feed_id, user_id, and group_id
     const { error: itemsError } = await supabase
       .from('feed_items')
       .insert(items.map(item => ({
@@ -65,6 +71,7 @@ export async function addFeed(url: string, integrationName: string, integrationA
         integration_alias: item.integrationAlias,
         created_at: item.createdAt,
         user_id: user.id,
+        group_id: groupId || null,
       })));
 
     if (itemsError) {
@@ -103,12 +110,23 @@ export async function addFeed(url: string, integrationName: string, integrationA
   }
 }
 
-export async function getFeeds(): Promise<{ feeds: Feed[]; error?: FeedError }> {
+export async function getFeeds(groupId?: string | null): Promise<{ feeds: Feed[]; error?: FeedError }> {
   try {
-    const { data: feeds, error } = await supabase
+    let query = supabase
       .from('feeds')
       .select('*')
       .order('created_at', { ascending: false });
+
+    // Filter by context: personal feeds (group_id IS NULL) or specific group feeds
+    if (groupId === null || groupId === undefined) {
+      // Personal feeds only
+      query = query.is('group_id', null);
+    } else {
+      // Specific group feeds only
+      query = query.eq('group_id', groupId);
+    }
+
+    const { data: feeds, error } = await query;
 
     if (error) {
       return {
@@ -190,21 +208,31 @@ export async function getFeedItems(feedId: string): Promise<{ items: FeedItem[];
   }
 }
 
-export async function getAllFeedItems(): Promise<{ items: FeedItem[]; error?: FeedError }> {
+export async function getAllFeedItems(groupId?: string | null): Promise<{ items: FeedItem[]; error?: FeedError }> {
   try {
-    const { data: items, error } = await supabase
+    let query = supabase
       .from('feed_items')
       .select(`
         *,
         feeds!inner(
           id,
-          title,
           integration_name,
-          integration_alias,
-          url
+          integration_alias
         )
       `)
-      .order('pub_date', { ascending: false });
+      .order('pub_date', { ascending: false })
+      .limit(50);
+
+    // Filter by context: personal feed items or specific group feed items
+    if (groupId === null || groupId === undefined) {
+      // Personal feed items only
+      query = query.is('group_id', null);
+    } else {
+      // Specific group feed items only
+      query = query.eq('group_id', groupId);
+    }
+
+    const { data: items, error } = await query;
 
     if (error) {
       return {
@@ -227,12 +255,6 @@ export async function getAllFeedItems(): Promise<{ items: FeedItem[]; error?: Fe
       integrationName: item.integration_name,
       integrationAlias: item.integration_alias,
       createdAt: item.created_at,
-      // Add feed metadata
-      feedInfo: {
-        id: item.feeds.id,
-        title: item.feeds.title,
-        url: item.feeds.url,
-      }
     }));
 
     return { items: mappedItems };
@@ -251,56 +273,44 @@ export async function getAllFeedItems(): Promise<{ items: FeedItem[]; error?: Fe
 export async function getAllFeedItemsPaginated(
   limit: number = 20, 
   offset: number = 0,
-  integrationFilter?: string
+  integrationFilter?: string,
+  groupId?: string | null
 ): Promise<{ items: FeedItem[]; hasMore: boolean; totalCount: number; error?: FeedError }> {
   try {
-    // Build query with optional integration filter
-    let countQuery = supabase.from('feed_items').select('*', { count: 'exact', head: true });
-    let itemsQuery = supabase
+    let query = supabase
       .from('feed_items')
       .select(`
         *,
         feeds!inner(
           id,
-          title,
           integration_name,
-          integration_alias,
-          url
+          integration_alias
         )
-      `)
+      `, { count: 'exact' })
       .order('pub_date', { ascending: false })
       .range(offset, offset + limit - 1);
 
+    // Filter by context: personal feed items or specific group feed items
+    if (groupId === null || groupId === undefined) {
+      // Personal feed items only
+      query = query.is('group_id', null);
+    } else {
+      // Specific group feed items only
+      query = query.eq('group_id', groupId);
+    }
+
     // Apply integration filter if provided
-    if (integrationFilter && integrationFilter !== 'all') {
-      countQuery = countQuery.eq('integration_name', integrationFilter);
-      itemsQuery = itemsQuery.eq('integration_name', integrationFilter);
+    if (integrationFilter) {
+      query = query.eq('integration_name', integrationFilter);
     }
 
-    // Get total count with filter
-    const { count: totalCount, error: countError } = await countQuery;
-
-    if (countError) {
-      return {
-        items: [],
-        hasMore: false,
-        totalCount: 0,
-        error: {
-          code: 'DB_ERROR',
-          message: countError.message,
-          details: countError,
-        },
-      };
-    }
-
-    // Get paginated items with filter
-    const { data: items, error } = await itemsQuery;
+    const { data: items, error, count: totalCount } = await query;
 
     if (error) {
       return {
         items: [],
         hasMore: false,
-        totalCount: totalCount || 0,
+        totalCount: 0,
         error: {
           code: 'DB_ERROR',
           message: error.message,
@@ -469,15 +479,26 @@ export async function deleteFeed(id: string): Promise<{ success: boolean; error?
 }
 
 // Function to get all available integrations with item counts
-export async function getIntegrationsWithCounts(): Promise<{ 
+export async function getIntegrationsWithCounts(groupId?: string | null): Promise<{ 
   integrations: Array<{ name: string; displayName: string; count: number }>; 
   error?: FeedError 
 }> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('feed_items')
       .select('integration_name, integration_alias')
       .order('integration_name');
+
+    // Filter by context: personal feed items or specific group feed items
+    if (groupId === null || groupId === undefined) {
+      // Personal feed items only
+      query = query.is('group_id', null);
+    } else {
+      // Specific group feed items only
+      query = query.eq('group_id', groupId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return {

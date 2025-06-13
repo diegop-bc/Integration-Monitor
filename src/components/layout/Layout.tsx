@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { GroupSwitcher } from '../groups/GroupSwitcher'
 
 interface LayoutProps {
   children: ReactNode
@@ -20,9 +21,9 @@ const Layout = ({ children }: LayoutProps) => {
   
   return (
     <div className="min-h-screen gradient-bg">
-      <header className="bg-white border-b border-white sticky top-0 z-50">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="flex justify-between items-center py-6">
+          <div className="flex justify-between items-center py-4">
             <Link to="/" className="flex items-center gap-3 group">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-200">
                 <svg className="icon-md text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -30,18 +31,23 @@ const Layout = ({ children }: LayoutProps) => {
                 </svg>
               </div>
               <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+                <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                   Integration Monitor
                 </h1>
                 <p className="text-sm text-gray-500 font-medium">RSS Changelog Tracker</p>
               </div>
             </Link>
             
+            {/* Group Switcher */}
+            <div className="flex-1 max-w-sm mx-8">
+              <GroupSwitcher />
+            </div>
+            
             <div className="flex items-center gap-6">
-              <nav className="flex items-center gap-6">
+              <nav className="flex items-center gap-4">
                 <Link 
                   to="/" 
-                  className={`px-4 py-2 rounded-xl font-medium transition-all duration-200 ${
+                  className={`px-3 py-2 rounded-lg font-medium transition-all duration-200 ${
                     location.pathname === '/' 
                       ? 'bg-blue-100 text-blue-700 shadow-md' 
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
@@ -51,7 +57,7 @@ const Layout = ({ children }: LayoutProps) => {
                 </Link>
                 <Link 
                   to="/updates" 
-                  className={`px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center gap-2 ${
+                  className={`px-3 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 ${
                     location.pathname === '/updates' 
                       ? 'bg-blue-100 text-blue-700 shadow-md' 
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'

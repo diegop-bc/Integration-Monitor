@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
+import { GroupProvider } from './contexts/GroupContext'
 import { AuthGuard } from './components/auth/AuthGuard'
 import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
@@ -18,6 +19,32 @@ const queryClient = new QueryClient({
   },
 })
 
+// Protected routes wrapper component
+function ProtectedRoutes() {
+  return (
+    <GroupProvider>
+      <Layout>
+        <Routes>
+          {/* Personal workspace routes */}
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/personal" element={<Dashboard />} />
+          <Route path="/personal/feed/:feedId" element={<FeedView />} />
+          <Route path="/personal/updates" element={<UnifiedFeedPage />} />
+          
+          {/* Group workspace routes */}
+          <Route path="/group/:groupId" element={<Dashboard />} />
+          <Route path="/group/:groupId/feed/:feedId" element={<FeedView />} />
+          <Route path="/group/:groupId/updates" element={<UnifiedFeedPage />} />
+          
+          {/* Legacy routes for backward compatibility */}
+          <Route path="/feed/:feedId" element={<FeedView />} />
+          <Route path="/updates" element={<UnifiedFeedPage />} />
+        </Routes>
+      </Layout>
+    </GroupProvider>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -30,13 +57,7 @@ function App() {
             {/* Protected routes */}
             <Route path="/*" element={
               <AuthGuard>
-                <Layout>
-                  <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/feed/:feedId" element={<FeedView />} />
-                    <Route path="/updates" element={<UnifiedFeedPage />} />
-                  </Routes>
-                </Layout>
+                <ProtectedRoutes />
               </AuthGuard>
             } />
           </Routes>

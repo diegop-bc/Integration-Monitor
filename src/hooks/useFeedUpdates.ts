@@ -63,7 +63,7 @@ export function useFeedUpdates(feedId?: string) {
 }
 
 // Hook for paginated feed items
-export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: string) {
+export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: string, groupId?: string | null) {
   const { user } = useAuth();
   const [allItems, setAllItems] = useState<FeedItem[]>([]);
   const [hasMore, setHasMore] = useState(true);
@@ -79,7 +79,7 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
     try {
       const { getAllFeedItemsPaginated } = await import('../services/feedService');
       const { items, hasMore: moreAvailable, totalCount: total, error } = 
-        await getAllFeedItemsPaginated(limit, offset, integrationFilter);
+        await getAllFeedItemsPaginated(limit, offset, integrationFilter, groupId);
       
       if (error) {
         console.error('Error loading more items:', error);
@@ -110,7 +110,7 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
     try {
       const { getAllFeedItemsPaginated } = await import('../services/feedService');
       const { items, hasMore: moreAvailable, totalCount: total, error } = 
-        await getAllFeedItemsPaginated(limit, 0, integrationFilter);
+        await getAllFeedItemsPaginated(limit, 0, integrationFilter, groupId);
       
       if (error) {
         console.error('Error loading initial items:', error);
@@ -127,13 +127,13 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
     }
   };
 
-  // Reset and load initial data when filter changes or user changes
+  // Reset and load initial data when filter changes, group changes, or user changes
   useEffect(() => {
     if (user) {
       reset();
       loadInitialData();
     }
-  }, [integrationFilter, user?.id]);
+  }, [integrationFilter, groupId, user?.id]);
 
   return {
     items: allItems,
@@ -146,7 +146,7 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
 }
 
 // Hook for fetching available integrations
-export function useIntegrations() {
+export function useIntegrations(groupId?: string | null) {
   const { user } = useAuth();
   const [integrations, setIntegrations] = useState<Array<{ name: string; displayName: string; count: number }>>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -160,7 +160,7 @@ export function useIntegrations() {
     
     try {
       const { getIntegrationsWithCounts } = await import('../services/feedService');
-      const { integrations: data, error: fetchError } = await getIntegrationsWithCounts();
+      const { integrations: data, error: fetchError } = await getIntegrationsWithCounts(groupId);
       
       if (fetchError) {
         setError(fetchError);
@@ -183,7 +183,7 @@ export function useIntegrations() {
     } else {
       setIntegrations([]);
     }
-  }, [user?.id]);
+  }, [user?.id, groupId]);
 
   return {
     integrations,

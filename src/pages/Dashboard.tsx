@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
+import { GroupDashboard } from '../components/groups/GroupDashboard'
 import { addFeed, getFeeds, getAllFeedItems, updateFeed, deleteFeed } from '../services/feedService'
 import { useFeedUpdates } from '../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../utils/textSanitizer'
@@ -9,6 +10,7 @@ import type { Feed, FeedItem } from '../types/feed'
 
 const Dashboard = () => {
   const { user } = useAuth()
+  const params = useParams()
   const [feedUrl, setFeedUrl] = useState('')
   const [integrationName, setIntegrationName] = useState('')
   const [integrationAlias, setIntegrationAlias] = useState('')
@@ -20,30 +22,42 @@ const Dashboard = () => {
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
-  // Fetch feeds with user context
+  // Determine if we're in group mode based on URL
+  const isGroupMode = !!params.groupId
+  const groupId = params.groupId
+
+  console.log('📊 Dashboard render:', {
+    userId: user?.id,
+    paramsGroupId: params.groupId,
+    isGroupMode,
+    groupId,
+    allParams: params
+  });
+
+  // Fetch feeds with user context (personal feeds only) - ALWAYS call hooks
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
-    queryKey: ['feeds', user?.id],
-    queryFn: getFeeds,
-    enabled: !!user,
+    queryKey: ['feeds', user?.id, 'personal'],
+    queryFn: () => getFeeds(null), // null = personal feeds only
+    enabled: !!user && !isGroupMode, // Only fetch for personal mode
   })
 
-  // Fetch recent feed items with user context
+  // Fetch recent feed items with user context (personal feeds only) - ALWAYS call hooks
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
-    queryKey: ['allFeedItems', user?.id],
-    queryFn: getAllFeedItems,
-    enabled: !!user,
+    queryKey: ['allFeedItems', user?.id, 'personal'],
+    queryFn: () => getAllFeedItems(null), // null = personal feed items only
+    enabled: !!user && !isGroupMode, // Only fetch for personal mode
   })
 
-  // Listen for feed updates
+  // Listen for feed updates - ALWAYS call hooks
   useFeedUpdates()
 
-  // Add feed mutation
+  // Add feed mutation - ALWAYS call hooks
   const addFeedMutation = useMutation({
     mutationFn: ({ url, name, alias }: { url: string; name: string; alias?: string }) =>
       addFeed(url, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
       setFeedUrl('')
       setIntegrationName('')
       setIntegrationAlias('')
@@ -51,28 +65,36 @@ const Dashboard = () => {
     },
   })
 
-  // Update feed mutation
+  // Update feed mutation - ALWAYS call hooks
   const updateFeedMutation = useMutation({
     mutationFn: ({ id, name, alias }: { id: string; name: string; alias?: string }) =>
       updateFeed(id, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
       setEditingFeed(null)
       setEditName('')
       setEditAlias('')
     },
   })
 
-  // Delete feed mutation
+  // Delete feed mutation - ALWAYS call hooks
   const deleteFeedMutation = useMutation({
     mutationFn: (id: string) => deleteFeed(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
       setDeletingFeed(null)
     },
   })
+
+  // NOW we can do early returns after all hooks are called
+  if (isGroupMode) {
+    console.log('🏢 Rendering GroupDashboard for group:', groupId);
+    return <GroupDashboard groupId={groupId} />
+  }
+
+  console.log('🏠 Rendering Personal Dashboard');
 
   const handleAddFeed = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -165,6 +187,9 @@ const Dashboard = () => {
     
     return new Date(dateString).toLocaleDateString();
   };
+
+  // Determine the correct updates link based on context
+  const updatesLink = isGroupMode ? `/group/${groupId}/updates` : '/personal/updates';
 
   return (
     <div className="min-h-screen gradient-bg">
@@ -417,7 +442,7 @@ const Dashboard = () => {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">Recent Updates</h2>
           {recentItems.length > 0 && (
-            <Link to="/updates" className="secondary-button">
+            <Link to={updatesLink} className="secondary-button">
               View All Updates →
             </Link>
           )}
