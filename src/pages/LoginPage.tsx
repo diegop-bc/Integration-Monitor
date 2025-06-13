@@ -93,7 +93,7 @@ export default function LoginPage() {
     <div 
       className="min-h-screen flex relative"
       style={{ 
-        backgroundImage: 'url(/bg.jpg)', 
+        backgroundImage: 'url(/bg-opt.webp)', 
         backgroundSize: 'cover', 
         backgroundPosition: 'center', 
         backgroundRepeat: 'no-repeat' 
