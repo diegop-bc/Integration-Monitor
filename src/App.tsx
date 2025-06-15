@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard'
 import FeedView from './pages/FeedView'
 import UnifiedFeedPage from './pages/UnifiedFeedPage'
 import LoginPage from './pages/LoginPage'
+import { AcceptInvitation } from './pages/AcceptInvitation'
 import './App.css'
 
 const queryClient = new QueryClient({
@@ -51,8 +52,9 @@ function App() {
       <AuthProvider>
         <Router>
           <Routes>
-            {/* Public route - Login */}
+            {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/invite/:token" element={<AcceptInvitation />} />
             
             {/* Protected routes */}
             <Route path="/*" element={

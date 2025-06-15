@@ -4,7 +4,15 @@
   "version": "1.0.0",
   "description": "Monitor your integrations via RSS Feed - Track updates across all your third-party services in one unified timeline",
   "type": "module",
-  "keywords": ["integration", "monitor", "rss", "feed", "changelog", "api", "monitoring"],
+  "keywords": [
+    "integration",
+    "monitor",
+    "rss",
+    "feed",
+    "changelog",
+    "api",
+    "monitoring"
+  ],
   "author": "Integration Monitor Team",
   "license": "MIT",
   "scripts": {
@@ -24,6 +32,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.2",
+    "resend": "^4.6.0",
     "rss-parser": "^3.13.0",
     "tailwindcss": "^4.1.10"
   },

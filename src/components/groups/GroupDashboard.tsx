@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getFeeds, getAllFeedItems, addFeed, updateFeed, deleteFeed } from '../../services/feedService';
 import { useFeedUpdates } from '../../hooks/useFeedUpdates';
 import { sanitizeAndTruncate } from '../../utils/textSanitizer';
+import { MemberManagement } from './MemberManagement';
 import type { Feed, FeedItem } from '../../types/feed';
 
 interface GroupDashboardProps {
@@ -536,6 +537,14 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
               </form>
             </div>
           )}
+        </div>
+
+        {/* Member Management Section */}
+        <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200">
+          <MemberManagement 
+            groupId={currentGroup.id} 
+            userRole={currentGroup.role} 
+          />
         </div>
 
         {/* Recent Updates Section */}
