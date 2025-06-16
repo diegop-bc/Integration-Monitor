@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { memberService } from '../services/memberService';
 import { getRedirectUrl } from '../lib/config';
 
 type AuthMode = 'login' | 'signup';
@@ -9,6 +10,7 @@ type AuthMode = 'login' | 'signup';
 export default function LoginPage() {
   const { user, loading, initialized } = useAuth();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,11 +19,51 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   
+  // Get invitation params
+  const invitationToken = searchParams.get('invitation');
+  const invitationEmail = searchParams.get('email');
+  
   // Get the page the user was trying to access before login
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
 
-  // Redirect authenticated users
-  if (user && initialized) {
+  // Pre-fill email if coming from invitation
+  useEffect(() => {
+    if (invitationEmail) {
+      setEmail(invitationEmail);
+    }
+    // Show message from state if any (e.g., from account creation)
+    if (location.state?.message) {
+      setMessage(location.state.message);
+      if (location.state?.email) {
+        setEmail(location.state.email);
+      }
+    }
+  }, [invitationEmail, location.state]);
+
+  // Handle invitation after successful login
+  useEffect(() => {
+    const handleInvitationAfterLogin = async () => {
+      if (user && invitationToken && user.email === invitationEmail) {
+        try {
+          await memberService.acceptInvitationExistingUser(invitationToken);
+          setMessage('¡Te has unido exitosamente al grupo!');
+          // Redirect to groups page after a short delay
+          setTimeout(() => {
+            window.location.href = '/groups';
+          }, 2000);
+        } catch (err) {
+          setError(`Error al unirse al grupo: ${err instanceof Error ? err.message : 'Error desconocido'}`);
+        }
+      }
+    };
+
+    if (user && initialized && invitationToken) {
+      handleInvitationAfterLogin();
+    }
+  }, [user, initialized, invitationToken, invitationEmail]);
+
+  // Redirect authenticated users (but not if they have a pending invitation)
+  if (user && initialized && !invitationToken) {
     return <Navigate to={from} replace />;
   }
 
@@ -188,15 +230,35 @@ export default function LoginPage() {
 
             {/* Form Header */}
             <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {authMode === 'login' ? 'Welcome back' : 'Create your account'}
-              </h2>
-              <p className="text-gray-700 mt-2">
-                {authMode === 'login' 
-                  ? 'Sign in to access your private integrations'
-                  : 'Start monitoring your integrations today'
-                }
-              </p>
+              {invitationToken ? (
+                <>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    Inicia Sesión para Unirte
+                  </h2>
+                  <p className="text-gray-700 mt-2">
+                    Has sido invitado a unirte a un grupo. Inicia sesión para aceptar la invitación.
+                  </p>
+                  {invitationEmail && (
+                    <div className="mt-3 p-3 bg-blue-50/90 backdrop-blur-sm border border-blue-200 rounded-lg">
+                      <p className="text-blue-800 text-sm">
+                        <strong>Email de invitación:</strong> {invitationEmail}
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {authMode === 'login' ? 'Welcome back' : 'Create your account'}
+                  </h2>
+                  <p className="text-gray-700 mt-2">
+                    {authMode === 'login' 
+                      ? 'Sign in to access your private integrations'
+                      : 'Start monitoring your integrations today'
+                    }
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Error/Success Messages */}

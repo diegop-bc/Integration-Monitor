@@ -419,8 +419,10 @@ export class MemberService {
 
   /**
    * Get invitation by token (for invitation validation)
+   * Works for both authenticated and anonymous users
    */
   async getInvitationByToken(token: string): Promise<GroupInvitation | null> {
+    // Query invitation directly (now allowed by RLS policy for anonymous users)
     const { data: invitation, error } = await supabase
       .from('group_invitations')
       .select('*')
@@ -430,15 +432,15 @@ export class MemberService {
 
     if (error || !invitation) return null;
 
-    // Get group details
+    // Get group details (now allowed by RLS policy for anonymous users)
     const { data: group } = await supabase
       .from('user_groups')
       .select('name')
       .eq('id', invitation.group_id)
       .single();
 
-    // Get inviter details
-    const { data: inviterProfile } = await supabase.auth.admin.getUserById(invitation.invited_by);
+    // Don't try to get inviter details for anonymous users to avoid auth.admin errors
+    const inviterName = 'Un miembro del equipo';
 
     return {
       id: invitation.id,
@@ -446,7 +448,7 @@ export class MemberService {
       group_name: group?.name || 'Unknown Group',
       invited_email: invitation.invited_email,
       invited_by: invitation.invited_by,
-      invited_by_name: inviterProfile.user?.user_metadata?.name || inviterProfile.user?.user_metadata?.full_name || inviterProfile.user?.email,
+      invited_by_name: inviterName,
       role: invitation.role,
       token: invitation.token,
       expires_at: invitation.expires_at,
@@ -454,6 +456,78 @@ export class MemberService {
       accepted_at: invitation.accepted_at,
       is_expired: new Date(invitation.expires_at) < new Date(),
     };
+  }
+
+  /**
+   * Check if an email already has an account
+   * This helps determine whether to show signup or login flow
+   */
+  async checkEmailExists(email: string): Promise<boolean> {
+    try {
+      // This is a simplified check - in a real app you might want a proper endpoint
+      // For now, we'll just assume new users need to sign up
+      // You could implement this by trying a password reset flow or having a dedicated endpoint
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Accept invitation for existing user (login flow)
+   */
+  async acceptInvitationExistingUser(token: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User must be logged in');
+
+    // Get invitation details
+    const { data: invitation, error: inviteError } = await supabase
+      .from('group_invitations')
+      .select('*')
+      .eq('token', token)
+      .eq('invited_email', user.email)
+      .is('accepted_at', null)
+      .single();
+
+    if (inviteError || !invitation) {
+      throw new Error('Invalid or expired invitation');
+    }
+
+    // Check if invitation is expired
+    if (new Date(invitation.expires_at) < new Date()) {
+      throw new Error('Invitation has expired');
+    }
+
+    // Check if user is already a member
+    const { data: existingMember } = await supabase
+      .from('user_group_members')
+      .select('id')
+      .eq('group_id', invitation.group_id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (existingMember) {
+      throw new Error('You are already a member of this group');
+    }
+
+    // Add user to the group
+    const { error: membershipError } = await supabase
+      .from('user_group_members')
+      .insert({
+        group_id: invitation.group_id,
+        user_id: user.id,
+        role: invitation.role,
+      });
+
+    if (membershipError) throw membershipError;
+
+    // Mark invitation as accepted
+    const { error: updateInviteError } = await supabase
+      .from('group_invitations')
+      .update({ accepted_at: new Date().toISOString() })
+      .eq('id', invitation.id);
+
+    if (updateInviteError) throw updateInviteError;
   }
 }
 

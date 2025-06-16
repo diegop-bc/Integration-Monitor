@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { memberService } from '../services/memberService';
 import { useAuth } from '../contexts/AuthContext';
 import { getRoleDisplayName } from '../utils/permissions';
@@ -15,6 +15,7 @@ export function AcceptInvitation() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isExistingUser, setIsExistingUser] = useState<boolean | null>(null);
   const [formData, setFormData] = useState({
     email: searchParams.get('email') || '',
     password: '',
@@ -23,14 +24,8 @@ export function AcceptInvitation() {
 
   useEffect(() => {
     if (!token) {
-      setError('Invalid invitation link');
+      setError('Enlace de invitación inválido');
       setIsLoading(false);
-      return;
-    }
-
-    // If user is already logged in, redirect them to login to continue
-    if (user) {
-      navigate('/login?message=Please log out and use the invitation link to join the group', { replace: true });
       return;
     }
 
@@ -39,251 +34,253 @@ export function AcceptInvitation() {
       try {
         const invitationData = await memberService.getInvitationByToken(token);
         if (!invitationData) {
-          setError('Invalid or expired invitation');
+          setError('Invitación inválida o expirada');
         } else if (invitationData.is_expired) {
-          setError('This invitation has expired. Please request a new invitation from the group owner.');
+          setError('Esta invitación ha expirado. Por favor solicita una nueva invitación al propietario del grupo.');
         } else {
           setInvitation(invitationData);
           setFormData(prev => ({ ...prev, email: invitationData.invited_email }));
+          
+          // Check if user is already logged in with the invited email
+          if (user && user.email === invitationData.invited_email) {
+            setIsExistingUser(true);
+          } else if (user && user.email !== invitationData.invited_email) {
+            setError('Estás loggeado con una cuenta diferente. Por favor cierra sesión e intenta de nuevo con el email correcto.');
+          } else {
+            setIsExistingUser(false); // Anonymous user, assume new user for now
+          }
         }
       } catch (err) {
         console.error('Failed to fetch invitation:', err);
-        setError('Failed to load invitation details');
+        setError('Error al cargar los detalles de la invitación');
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchInvitation();
-  }, [token, user, navigate]);
+  }, [token, user]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !invitation) return;
-
-    setError(null);
+  const handleAcceptForExistingUser = async () => {
+    if (!invitation || !user) return;
+    
     setIsSubmitting(true);
+    setError(null);
 
     try {
-      // Validate form
-      if (!formData.email || !formData.password) {
-        setError('Email and password are required');
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (formData.email !== invitation.invited_email) {
-        setError('Email must match the invitation');
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (formData.password.length < 6) {
-        setError('Password must be at least 6 characters');
-        setIsSubmitting(false);
-        return;
-      }
-
-      const acceptData: AcceptInvitationRequest = {
-        token,
-        email: formData.email,
-        password: formData.password,
-        name: formData.name || undefined,
-      };
-
-      await memberService.acceptInvitation(acceptData);
-
-      // Redirect to login page with success message
-      navigate('/login?message=Account created successfully! Please log in to access your group.', { replace: true });
+      await memberService.acceptInvitationExistingUser(token!);
+      navigate('/groups', { 
+        replace: true,
+        state: { message: `¡Te has unido exitosamente al grupo "${invitation.group_name}"!` }
+      });
     } catch (err) {
-      console.error('Failed to accept invitation:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create account');
+      setError(err instanceof Error ? err.message : 'Error al aceptar la invitación');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!invitation) return;
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const acceptData: AcceptInvitationRequest = {
+        token: token!,
+        email: formData.email,
+        password: formData.password,
+        name: formData.name,
+      };
+
+      await memberService.acceptInvitation(acceptData);
+      
+      navigate('/login', { 
+        replace: true,
+        state: { 
+          message: `¡Cuenta creada exitosamente! Te has unido al grupo "${invitation.group_name}". Por favor inicia sesión.`,
+          email: formData.email
+        }
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al aceptar la invitación');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
-          <div className="animate-pulse">
-            <div className="flex items-center justify-center mb-6">
-              <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
-            </div>
-            <div className="space-y-4">
-              <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto"></div>
-              <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
-              <div className="h-10 bg-gray-200 rounded"></div>
-              <div className="h-10 bg-gray-200 rounded"></div>
-            </div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+          <div className="flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <span className="ml-2 text-gray-600">Cargando invitación...</span>
           </div>
         </div>
       </div>
     );
   }
 
-  if (error && !invitation) {
+  if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
-          <div className="flex items-center justify-center mb-4">
-            <svg className="h-12 w-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+          <div className="text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+              <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Error en la Invitación</h3>
+            <p className="text-sm text-gray-500 mb-6">{error}</p>
+            <Link
+              to="/login"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Ir al Login
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!invitation) {
+    return null;
+  }
+
+  // Show accept button for existing users
+  if (isExistingUser && user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+          <div className="text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 mb-4">
+              <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Unirse al Equipo</h2>
+            <p className="text-gray-600 mb-6">
+              Has sido invitado a unirte al grupo <strong>{invitation.group_name}</strong> como {getRoleDisplayName(invitation.role)}.
+            </p>
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <p className="text-sm text-gray-700">
+                <strong>Grupo:</strong> {invitation.group_name}
+              </p>
+              <p className="text-sm text-gray-700">
+                <strong>Rol:</strong> {getRoleDisplayName(invitation.role)}
+              </p>
+              <p className="text-sm text-gray-700">
+                <strong>Invitado por:</strong> {invitation.invited_by_name}
+              </p>
+            </div>
+            <button
+              onClick={handleAcceptForExistingUser}
+              disabled={isSubmitting}
+              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              {isSubmitting ? 'Uniéndose...' : 'Unirse al Grupo'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show signup form for new users
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <div className="text-center mb-6">
+          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 mb-4">
+            <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Invalid Invitation</h1>
-          <p className="text-gray-600 mb-6">{error}</p>
-          <button
-            onClick={() => navigate('/login')}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!invitation) return null;
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <div className="flex items-center justify-center mb-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-              <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-              </svg>
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Join the Team</h1>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Unirse al Equipo</h2>
           <p className="text-gray-600">
-            You've been invited to join <strong>{invitation.group_name}</strong> as a{' '}
-            <span className="font-medium">{getRoleDisplayName(invitation.role)}</span>
+            Has sido invitado a unirte al grupo <strong>{invitation.group_name}</strong> como {getRoleDisplayName(invitation.role)}.
           </p>
-          {invitation.invited_by_name && (
-            <p className="text-sm text-gray-500 mt-2">
-              Invited by {invitation.invited_by_name}
-            </p>
-          )}
         </div>
 
-        {/* Form */}
+        <div className="bg-gray-50 p-4 rounded-lg mb-6">
+          <p className="text-sm text-gray-700">
+            <strong>Grupo:</strong> {invitation.group_name}
+          </p>
+          <p className="text-sm text-gray-700">
+            <strong>Rol:</strong> {getRoleDisplayName(invitation.role)}
+          </p>
+          <p className="text-sm text-gray-700">
+            <strong>Invitado por:</strong> {invitation.invited_by_name}
+          </p>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
-              <svg className="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm">{error}</span>
-            </div>
-          )}
-
-          {/* Name */}
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-              Full Name (Optional)
-            </label>
-            <input
-              type="text"
-              id="name"
-              name="name"
-              value={formData.name}
-              onChange={handleInputChange}
-              placeholder="Your full name"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          {/* Email */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-              Email Address
+              Email
             </label>
             <input
               type="email"
               id="email"
-              name="email"
               value={formData.email}
-              onChange={handleInputChange}
-              readOnly
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
+              disabled
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-500 cursor-not-allowed"
             />
-            <p className="text-xs text-gray-500 mt-1">
-              This email must match your invitation
-            </p>
           </div>
 
-          {/* Password */}
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+              Nombre Completo
+            </label>
+            <input
+              type="text"
+              id="name"
+              value={formData.name}
+              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+          </div>
+
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-              Password
+              Contraseña
             </label>
             <input
               type="password"
               id="password"
-              name="password"
               value={formData.password}
-              onChange={handleInputChange}
-              placeholder="Choose a secure password"
-              minLength={6}
+              onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              minLength={6}
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Must be at least 6 characters
-            </p>
           </div>
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            {isSubmitting ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                Creating Account...
-              </>
-            ) : (
-              <>
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                </svg>
-                Join Group & Create Account
-              </>
-            )}
+            {isSubmitting ? 'Creando cuenta...' : 'Crear Cuenta y Unirse'}
           </button>
         </form>
 
-        {/* Footer */}
         <div className="mt-6 text-center">
-          <p className="text-sm text-gray-500">
-            Already have an account?{' '}
-            <button
-              onClick={() => navigate('/login')}
-              className="text-blue-600 hover:text-blue-500 font-medium"
+          <p className="text-sm text-gray-600">
+            ¿Ya tienes una cuenta?{' '}
+            <Link 
+              to={`/login?invitation=${token}&email=${encodeURIComponent(formData.email)}`}
+              className="font-medium text-blue-600 hover:text-blue-500"
             >
-              Sign in instead
-            </button>
+              Inicia sesión para unirte
+            </Link>
           </p>
-        </div>
-
-        {/* Invitation Details */}
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <div className="text-xs text-gray-500 space-y-1">
-            <div>Invitation expires: {new Date(invitation.expires_at).toLocaleDateString()}</div>
-            <div>Role: {getRoleDisplayName(invitation.role)}</div>
-          </div>
         </div>
       </div>
     </div>
