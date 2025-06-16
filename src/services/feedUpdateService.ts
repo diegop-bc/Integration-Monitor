@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { parseFeed } from '../utils/rssParser';
 import type { FeedItem, FeedError } from '../types/feed';
 
-const FETCH_INTERVAL = 2 * 60 * 60 * 1000; // 2 horas en millisegundos (cambiado de 15 minutos)
+const FETCH_INTERVAL = 4 * 60 * 60 * 1000; // 4 horas en millisegundos (servidor actualiza diariamente)
 
 export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: FeedItem[]; error?: FeedError }> {
   try {

@@ -169,6 +169,25 @@ async function updateFeed(feed: any): Promise<UpdateResult> {
   return { newItems: newItems.length, errors: [] };
 }
 
+/**
+ * Vercel Cron Job for Automatic Feed Updates
+ * 
+ * This function runs automatically every day at 8:00 AM UTC to fetch
+ * and update all RSS feeds in the system.
+ * 
+ * Schedule: Daily at 8:00 AM UTC (0 8 * * *)
+ * Vercel Free Plan: Only supports daily cron jobs
+ * 
+ * Features:
+ * - Fetches all feeds from database
+ * - Parses RSS feeds for new items
+ * - Inserts only new items (prevents duplicates)
+ * - Processes feeds in batches to avoid timeouts
+ * - Updates last_fetched timestamps
+ * - Comprehensive error handling and logging
+ * 
+ * Security: Requires CRON_SECRET environment variable
+ */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Verificar que es una solicitud de cron job
   const authHeader = req.headers.authorization;
@@ -178,7 +197,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  console.log('🔄 Iniciando actualización automática de feeds RSS...');
+  console.log('🔄 Iniciando actualización automática diaria de feeds...');
 
   try {
     // Obtener todos los feeds activos

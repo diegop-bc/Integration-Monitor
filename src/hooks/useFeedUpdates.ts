@@ -35,8 +35,8 @@ export function useFeedUpdates(feedId?: string) {
         // Initial fetch
         updateAll();
 
-        // Set up interval for all feeds - cambiado a 2 horas
-        const interval = setInterval(updateAll, 2 * 60 * 60 * 1000); // 2 horas
+        // Set up interval for all feeds - cambiado a 4 horas (servidor actualiza diariamente)
+        const interval = setInterval(updateAll, 4 * 60 * 60 * 1000); // 4 horas
         cleanup = () => clearInterval(interval);
       }
     };
