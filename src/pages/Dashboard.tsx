@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import { GroupDashboard } from '../components/groups/GroupDashboard'
 import { addFeed, getFeeds, getAllFeedItems, updateFeed, deleteFeed } from '../services/feedService'
-import { useFeedUpdates } from '../hooks/useFeedUpdates'
+import { useFeedUpdates, useManualFeedUpdate } from '../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../utils/textSanitizer'
 import type { Feed, FeedItem } from '../types/feed'
 
@@ -21,6 +21,9 @@ const Dashboard = () => {
   const [editAlias, setEditAlias] = useState('')
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null)
   const queryClient = useQueryClient()
+
+  // Hook for manual feed updates
+  const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate()
 
   // Determine if we're in group mode based on URL
   const isGroupMode = !!params.groupId
@@ -50,6 +53,16 @@ const Dashboard = () => {
 
   // Listen for feed updates - ALWAYS call hooks
   useFeedUpdates()
+
+  // Handle manual update
+  const handleManualUpdate = async () => {
+    const result = await updateAllFeeds()
+    if (result.success) {
+      // Invalidate queries to refresh the UI
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
+    }
+  }
 
   // Add feed mutation - ALWAYS call hooks
   const addFeedMutation = useMutation({
@@ -208,16 +221,70 @@ const Dashboard = () => {
               <h2 className="text-xl font-semibold text-gray-900">
                 Your Integrations ({feeds.length})
               </h2>
-              <button
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="modern-button text-sm"
-              >
-                <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Add Integration
-              </button>
+              <div className="flex gap-3">
+                {/* Manual Update Button */}
+                <button
+                  onClick={handleManualUpdate}
+                  disabled={isUpdating}
+                  className="modern-button text-sm bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Actualizar todos los feeds manualmente"
+                >
+                  <svg className={`icon-sm ${isUpdating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {isUpdating ? 'Actualizando...' : 'Refrescar Feeds'}
+                </button>
+                
+                <button
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="modern-button text-sm"
+                >
+                  <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Add Integration
+                </button>
+              </div>
             </div>
+
+            {/* Status Message for Manual Update */}
+            {lastUpdate && (
+              <div className={`mb-4 p-3 rounded-lg text-sm ${
+                lastUpdate.success 
+                  ? (lastUpdate.newItems && lastUpdate.newItems > 0 
+                      ? 'bg-green-50 text-green-800 border border-green-200'
+                      : 'bg-blue-50 text-blue-800 border border-blue-200'
+                    )
+                  : 'bg-red-50 text-red-800 border border-red-200'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {lastUpdate.success ? (
+                    lastUpdate.newItems && lastUpdate.newItems > 0 ? (
+                      <svg className="icon-sm text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="icon-sm text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    )
+                  ) : (
+                    <svg className="icon-sm text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                  <span>
+                    {lastUpdate.message}
+                    {lastUpdate.newItems !== undefined && lastUpdate.newItems > 0 && (
+                      <span className="font-semibold"> - {lastUpdate.newItems} nuevos elementos encontrados</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-gray-500 ml-auto">
+                    {lastUpdate.timestamp.toLocaleTimeString()}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {feedsLoading ? (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">

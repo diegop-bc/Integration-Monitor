@@ -26,7 +26,7 @@ serve(async (req) => {
 
     // Create email content
     const emailContent = {
-      from: 'Integration Monitor <onboarding@resend.dev>', // Replace with your domain
+      from: 'Integration Monitor <no-reply@postman.integrations.me>',
       to: [email],
       subject: `You're invited to join ${groupName}`,
       html: `

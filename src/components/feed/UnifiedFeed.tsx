@@ -38,7 +38,7 @@ const UnifiedFeed = () => {
   });
 
   // Listen for new updates across all feeds
-  const { newItems } = useFeedUpdates();
+  useFeedUpdates();
 
   const handleRefresh = () => {
     reset();
@@ -198,33 +198,6 @@ const UnifiedFeed = () => {
                   );
                 })}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* New Items Notification */}
-        {newItems.length > 0 && (
-          <div className="modern-card p-6 border-l-4 border-green-500">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-green-100 rounded-full">
-                  <svg className="icon-md text-green-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 text-lg">New Updates Available!</h3>
-                  <p className="text-gray-600">
-                    {newItems.length} new update{newItems.length > 1 ? 's' : ''} available! 
-                  </p>
-                </div>
-              </div>
-              <button 
-                onClick={handleRefresh}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-              >
-                Refresh to see them
-              </button>
             </div>
           </div>
         )}

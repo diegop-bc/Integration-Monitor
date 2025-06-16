@@ -109,13 +109,6 @@ export function getRoleBadgeColor(role: GroupRole): string {
  * Check if a role can manage another role
  */
 export function canManageRole(managerRole: GroupRole, targetRole: GroupRole): boolean {
-  const roleHierarchy = {
-    owner: 4,
-    admin: 3,
-    member: 2,
-    viewer: 1,
-  };
-
   // Owners can manage anyone except other owners
   if (managerRole === 'owner') {
     return targetRole !== 'owner';

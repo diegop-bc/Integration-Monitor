@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { startFeedUpdates, fetchAllFeedUpdates } from '../services/feedUpdateService';
+import { startFeedUpdates, fetchAllFeedUpdates, forceManualUpdate, getFeedUpdateStats } from '../services/feedUpdateService';
 import type { FeedItem, FeedError } from '../types/feed';
 
 export function useFeedUpdates(feedId?: string) {
@@ -35,8 +35,8 @@ export function useFeedUpdates(feedId?: string) {
         // Initial fetch
         updateAll();
 
-        // Set up interval for all feeds
-        const interval = setInterval(updateAll, 15 * 60 * 1000); // 15 minutes
+        // Set up interval for all feeds - cambiado a 2 horas
+        const interval = setInterval(updateAll, 2 * 60 * 60 * 1000); // 2 horas
         cleanup = () => clearInterval(interval);
       }
     };
@@ -59,6 +59,96 @@ export function useFeedUpdates(feedId?: string) {
     error,
     isLoading,
     clearNewItems,
+  };
+}
+
+// Nuevo hook para actualización manual
+export function useManualFeedUpdate() {
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<{
+    success: boolean;
+    message: string;
+    newItems?: number;
+    timestamp: Date;
+  } | null>(null);
+
+  const updateFeed = async (feedId?: string) => {
+    setIsUpdating(true);
+    try {
+      const result = await forceManualUpdate(feedId);
+      setLastUpdate({
+        ...result,
+        timestamp: new Date(),
+      });
+      return result;
+    } catch (error) {
+      const errorResult = {
+        success: false,
+        message: error instanceof Error ? error.message : 'Error desconocido',
+        timestamp: new Date(),
+      };
+      setLastUpdate(errorResult);
+      return errorResult;
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const updateAllFeeds = () => updateFeed();
+  const updateSingleFeed = (feedId: string) => updateFeed(feedId);
+
+  return {
+    isUpdating,
+    lastUpdate,
+    updateAllFeeds,
+    updateSingleFeed,
+  };
+}
+
+// Hook para estadísticas de feeds
+export function useFeedStats() {
+  const { user } = useAuth();
+  const [stats, setStats] = useState<Array<{ id: string; name: string; lastFetched: string; itemCount: number }>>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<FeedError | null>(null);
+
+  const fetchStats = async () => {
+    if (!user) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const { feeds, error: statsError } = await getFeedUpdateStats();
+      
+      if (statsError) {
+        setError(statsError);
+      } else {
+        setStats(feeds);
+      }
+    } catch (err) {
+      setError({
+        code: 'UNKNOWN_ERROR',
+        message: err instanceof Error ? err.message : 'Error obteniendo estadísticas',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchStats();
+    } else {
+      setStats([]);
+    }
+  }, [user?.id]);
+
+  return {
+    stats,
+    isLoading,
+    error,
+    refetchStats: fetchStats,
   };
 }
 

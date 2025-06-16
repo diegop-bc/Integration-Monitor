@@ -2,11 +2,10 @@ import { supabase } from '../lib/supabase';
 import { emailService } from './emailService';
 import type { 
   GroupMember, 
-  InviteMemberRequest, 
   GroupInvitation,
+  InviteMemberRequest,
   UpdateMemberRoleRequest,
-  AcceptInvitationRequest,
-  GroupRole 
+  AcceptInvitationRequest
 } from '../types/group';
 
 export class MemberService {
