@@ -459,21 +459,6 @@ export class MemberService {
   }
 
   /**
-   * Check if an email already has an account
-   * This helps determine whether to show signup or login flow
-   */
-  async checkEmailExists(email: string): Promise<boolean> {
-    try {
-      // This is a simplified check - in a real app you might want a proper endpoint
-      // For now, we'll just assume new users need to sign up
-      // You could implement this by trying a password reset flow or having a dedicated endpoint
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Accept invitation for existing user (login flow)
    */
   async acceptInvitationExistingUser(token: string): Promise<void> {
