@@ -452,10 +452,17 @@ export class MemberService {
       .from('group_invitations')
       .select('*')
       .eq('token', token)
-      .is('accepted_at', null)
       .single();
 
-    if (error || !invitation) return null;
+    if (error) {
+      console.error('Error fetching invitation by token:', error);
+      return null;
+    }
+    
+    if (!invitation) {
+      console.log('No invitation found for token:', token);
+      return null;
+    }
 
     // Get group details (now allowed by RLS policy for anonymous users)
     const { data: group } = await supabase

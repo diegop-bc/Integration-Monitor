@@ -50,14 +50,17 @@
 
 ## 🚀 Instrucciones de Instalación
 
-### Paso 1: Ejecutar Migración de Base de Datos
+### Paso 1: Ejecutar Migraciones de Base de Datos
 
 1. **Ir a tu proyecto Supabase** → SQL Editor
-2. **Copiar y ejecutar** el contenido de:
+2. **Ejecutar en orden** los siguientes archivos:
    ```
    db/migrations/database_migration_005_fix_invitation_acceptance.sql
+   db/migrations/database_migration_006_fix_invitation_rls.sql
    ```
 3. **Verificar** que no hay errores en la ejecución
+
+> **Nota importante**: La migración 006 es crítica para solucionar el error 406 que impide el acceso a invitaciones por usuarios anónimos.
 
 ### Paso 2: Configurar Supabase Auth
 
