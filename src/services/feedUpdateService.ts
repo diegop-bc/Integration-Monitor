@@ -140,11 +140,16 @@ export async function startFeedUpdates(feedId: string, onUpdate: (newItems: Feed
   };
 }
 
-export async function fetchAllFeedUpdates(): Promise<{ updates: Record<string, FeedItem[]>; error?: FeedError }> {
+export async function fetchAllFeedUpdates(groupId?: string): Promise<{ updates: Record<string, FeedItem[]>; error?: FeedError }> {
   try {
-    const { data: feeds, error: feedsError } = await supabase
-      .from('feeds')
-      .select('id');
+    let query = supabase.from('feeds').select('id');
+    
+    // Si se proporciona groupId, filtrar feeds por grupo
+    if (groupId) {
+      query = query.eq('group_id', groupId);
+    }
+
+    const { data: feeds, error: feedsError } = await query;
 
     if (feedsError) {
       return {
@@ -195,18 +200,11 @@ export async function fetchAllFeedUpdates(): Promise<{ updates: Record<string, F
 }
 
 // Nueva función para forzar actualización manual desde el frontend
-export async function forceManualUpdate(feedId?: string): Promise<{ success: boolean; message: string; newItems?: number; error?: FeedError }> {
+export async function forceManualUpdate(feedId?: string, groupId?: string | null): Promise<{ success: boolean; message: string; newItems?: number; error?: FeedError }> {
   try {
-    // Detectar si estamos en desarrollo o producción
-    const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    
-    if (isDevelopment) {
-      // En desarrollo, usar las funciones directamente
-      return await forceManualUpdateDirect(feedId);
-    } else {
-      // En producción, usar la API route
-      return await forceManualUpdateAPI(feedId);
-    }
+    // Siempre usar las funciones directamente sin llamar a la API
+    // Esto evita problemas con el endpoint API en Vercel
+    return await forceManualUpdateDirect(feedId, groupId);
   } catch (error) {
     return {
       success: false,
@@ -221,7 +219,7 @@ export async function forceManualUpdate(feedId?: string): Promise<{ success: boo
 }
 
 // Función para actualización directa (desarrollo)
-async function forceManualUpdateDirect(feedId?: string): Promise<{ success: boolean; message: string; newItems?: number; error?: FeedError }> {
+async function forceManualUpdateDirect(feedId?: string, groupId?: string | null): Promise<{ success: boolean; message: string; newItems?: number; error?: FeedError }> {
   try {
     let totalNewItems = 0;
     let updatedFeeds = 0;
@@ -253,8 +251,9 @@ async function forceManualUpdateDirect(feedId?: string): Promise<{ success: bool
         newItems: newItems.length,
       };
     } else {
-      // Actualizar todos los feeds usando la función existente
-      const { updates, error } = await fetchAllFeedUpdates();
+      // Actualizar todos los feeds del grupo usando la función existente
+      // Si groupId es null, fetchAllFeedUpdates obtendrá todos los feeds del usuario
+      const { updates, error } = await fetchAllFeedUpdates(groupId || undefined);
       
       if (error) {
         // Si es error de duplicados/RLS, intentamos obtener información útil
@@ -310,60 +309,6 @@ async function forceManualUpdateDirect(feedId?: string): Promise<{ success: bool
       error: {
         code: 'UNKNOWN_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
-        details: error,
-      },
-    };
-  }
-}
-
-// Función para actualización via API (producción)
-async function forceManualUpdateAPI(feedId?: string): Promise<{ success: boolean; message: string; newItems?: number; error?: FeedError }> {
-  try {
-    const response = await fetch('/api/manual-update-feeds', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        feedId: feedId || undefined,
-        updateAll: !feedId,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return {
-        success: false,
-        message: data.error || 'Error desconocido',
-        error: {
-          code: 'API_ERROR',
-          message: data.error,
-          details: data,
-        },
-      };
-    }
-
-    if (feedId) {
-      return {
-        success: data.result?.success || false,
-        message: data.message || 'Actualización completada',
-        newItems: data.result?.newItems || 0,
-      };
-    } else {
-      return {
-        success: true,
-        message: data.message || 'Actualización masiva completada',
-        newItems: data.totalNewItems || 0,
-      };
-    }
-  } catch (error) {
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : 'Error de conexión',
-      error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
         details: error,
       },
     };

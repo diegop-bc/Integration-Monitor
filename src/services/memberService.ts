@@ -311,28 +311,31 @@ export class MemberService {
   }
 
   /**
+   * Check if an email is already registered
+   */
+  async checkEmailExists(email: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase.rpc('check_email_exists', {
+        check_email: email
+      });
+      
+      if (error) {
+        console.error('Error checking email existence:', error);
+        return false;
+      }
+      
+      return data === true;
+    } catch (error) {
+      console.error('Error checking email existence:', error);
+      return false;
+    }
+  }
+
+  /**
    * Accept an invitation (for new users)
    */
   async acceptInvitation(acceptData: AcceptInvitationRequest): Promise<void> {
-    // Get invitation details
-    const { data: invitation, error: inviteError } = await supabase
-      .from('group_invitations')
-      .select('*')
-      .eq('token', acceptData.token)
-      .eq('invited_email', acceptData.email)
-      .is('accepted_at', null)
-      .single();
-
-    if (inviteError || !invitation) {
-      throw new Error('Invalid or expired invitation');
-    }
-
-    // Check if invitation is expired
-    if (new Date(invitation.expires_at) < new Date()) {
-      throw new Error('Invitation has expired');
-    }
-
-    // Sign up the user
+    // Sign up the user with email confirmation
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
       email: acceptData.email,
       password: acceptData.password,
@@ -340,31 +343,53 @@ export class MemberService {
         data: {
           name: acceptData.name,
           full_name: acceptData.name,
-        }
+        },
+        // Set redirect URL to handle invitation after email confirmation
+        emailRedirectTo: `${window.location.origin}/confirm-email?invitation=${acceptData.token}&email=${encodeURIComponent(acceptData.email)}`
       }
     });
 
-    if (signUpError) throw signUpError;
-    if (!authData.user) throw new Error('Failed to create user account');
+    if (signUpError) {
+      console.error('Signup error:', signUpError);
+      if (signUpError.message.includes('User already registered')) {
+        throw new Error('Este email ya está registrado. Por favor inicia sesión en su lugar.');
+      }
+      throw new Error(`Error al crear la cuenta: ${signUpError.message}`);
+    }
 
-    // Add user to the group
-    const { error: membershipError } = await supabase
-      .from('user_group_members')
-      .insert({
-        group_id: invitation.group_id,
-        user_id: authData.user.id,
-        role: invitation.role,
+    if (!authData.user) {
+      throw new Error('Failed to create user account');
+    }
+
+    // If the user was created but needs email confirmation
+    if (!authData.session) {
+      // Don't try to accept invitation yet - wait for email confirmation
+      console.log('✅ Account created, waiting for email confirmation');
+      return;
+    }
+
+    // If user was created and confirmed immediately (in development)
+    // Use the database function to accept the invitation atomically
+    try {
+      const { data: result, error: acceptError } = await supabase.rpc('accept_group_invitation', {
+        invitation_token: acceptData.token,
+        user_email: acceptData.email
       });
 
-    if (membershipError) throw membershipError;
+      if (acceptError) {
+        console.error('Invitation acceptance error:', acceptError);
+        throw new Error(`Error al aceptar la invitación: ${acceptError.message}`);
+      }
 
-    // Mark invitation as accepted
-    const { error: updateInviteError } = await supabase
-      .from('group_invitations')
-      .update({ accepted_at: new Date().toISOString() })
-      .eq('id', invitation.id);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Error desconocido al aceptar la invitación');
+      }
 
-    if (updateInviteError) throw updateInviteError;
+      console.log('✅ Invitation accepted successfully:', result);
+    } catch (error) {
+      console.error('Failed to accept invitation:', error);
+      throw error;
+    }
   }
 
   /**
@@ -463,56 +488,29 @@ export class MemberService {
    */
   async acceptInvitationExistingUser(token: string): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User must be logged in');
+    if (!user || !user.email) throw new Error('User must be logged in');
 
-    // Get invitation details
-    const { data: invitation, error: inviteError } = await supabase
-      .from('group_invitations')
-      .select('*')
-      .eq('token', token)
-      .eq('invited_email', user.email)
-      .is('accepted_at', null)
-      .single();
-
-    if (inviteError || !invitation) {
-      throw new Error('Invalid or expired invitation');
-    }
-
-    // Check if invitation is expired
-    if (new Date(invitation.expires_at) < new Date()) {
-      throw new Error('Invitation has expired');
-    }
-
-    // Check if user is already a member
-    const { data: existingMember } = await supabase
-      .from('user_group_members')
-      .select('id')
-      .eq('group_id', invitation.group_id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (existingMember) {
-      throw new Error('You are already a member of this group');
-    }
-
-    // Add user to the group
-    const { error: membershipError } = await supabase
-      .from('user_group_members')
-      .insert({
-        group_id: invitation.group_id,
-        user_id: user.id,
-        role: invitation.role,
+    // Use the database function to accept the invitation atomically
+    try {
+      const { data: result, error: acceptError } = await supabase.rpc('accept_group_invitation', {
+        invitation_token: token,
+        user_email: user.email
       });
 
-    if (membershipError) throw membershipError;
+      if (acceptError) {
+        console.error('Invitation acceptance error:', acceptError);
+        throw new Error(`Error al aceptar la invitación: ${acceptError.message}`);
+      }
 
-    // Mark invitation as accepted
-    const { error: updateInviteError } = await supabase
-      .from('group_invitations')
-      .update({ accepted_at: new Date().toISOString() })
-      .eq('id', invitation.id);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Error desconocido al aceptar la invitación');
+      }
 
-    if (updateInviteError) throw updateInviteError;
+      console.log('✅ Invitation accepted successfully for existing user:', result);
+    } catch (error) {
+      console.error('Failed to accept invitation for existing user:', error);
+      throw error;
+    }
   }
 }
 

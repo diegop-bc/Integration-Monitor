@@ -30,7 +30,7 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null);
 
   // Hook for manual feed updates
-  const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate();
+  const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(currentGroup?.id);
 
   // Fetch feeds for the current group - ALWAYS call hooks
   const { data: feedsData, isLoading: feedsLoading } = useQuery({

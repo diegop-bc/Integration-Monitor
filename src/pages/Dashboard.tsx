@@ -23,7 +23,7 @@ const Dashboard = () => {
   const queryClient = useQueryClient()
 
   // Hook for manual feed updates
-  const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate()
+  const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(null)
 
   // Determine if we're in group mode based on URL
   const isGroupMode = !!params.groupId

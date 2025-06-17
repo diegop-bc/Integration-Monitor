@@ -63,7 +63,7 @@ export function useFeedUpdates(feedId?: string) {
 }
 
 // Nuevo hook para actualización manual
-export function useManualFeedUpdate() {
+export function useManualFeedUpdate(groupId?: string | null) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<{
     success: boolean;
@@ -75,7 +75,7 @@ export function useManualFeedUpdate() {
   const updateFeed = async (feedId?: string) => {
     setIsUpdating(true);
     try {
-      const result = await forceManualUpdate(feedId);
+      const result = await forceManualUpdate(feedId, groupId);
       setLastUpdate({
         ...result,
         timestamp: new Date(),

@@ -47,9 +47,14 @@ export default function LoginPage() {
         try {
           await memberService.acceptInvitationExistingUser(invitationToken);
           setMessage('¡Te has unido exitosamente al grupo!');
-          // Redirect to groups page after a short delay
+          
+          // Get the group ID from the invitation to redirect properly
+          const invitation = await memberService.getInvitationByToken(invitationToken);
+          const redirectUrl = invitation ? `/group/${invitation.group_id}` : '/groups';
+          
+          // Redirect to the specific group or groups page after a short delay
           setTimeout(() => {
-            window.location.href = '/groups';
+            window.location.href = redirectUrl;
           }, 2000);
         } catch (err) {
           setError(`Error al unirse al grupo: ${err instanceof Error ? err.message : 'Error desconocido'}`);
@@ -64,7 +69,9 @@ export default function LoginPage() {
 
   // Redirect authenticated users (but not if they have a pending invitation)
   if (user && initialized && !invitationToken) {
-    return <Navigate to={from} replace />;
+    // Check if there's a redirect URL from state (from successful signup)
+    const redirectUrl = location.state?.redirectAfterLogin || from;
+    return <Navigate to={redirectUrl} replace />;
   }
 
   // Show loading while checking auth state

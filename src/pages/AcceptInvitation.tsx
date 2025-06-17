@@ -22,6 +22,16 @@ export function AcceptInvitation() {
     name: '',
   });
 
+  // Function to check if email is already registered
+  const checkEmailExists = async (email: string): Promise<boolean> => {
+    try {
+      return await memberService.checkEmailExists(email);
+    } catch (error) {
+      console.error('Error checking email existence:', error);
+      return false;
+    }
+  };
+
   useEffect(() => {
     if (!token) {
       setError('Enlace de invitación inválido');
@@ -47,7 +57,9 @@ export function AcceptInvitation() {
           } else if (user && user.email !== invitationData.invited_email) {
             setError('Estás loggeado con una cuenta diferente. Por favor cierra sesión e intenta de nuevo con el email correcto.');
           } else {
-            setIsExistingUser(false); // Anonymous user, assume new user for now
+            // Check if the invited email is already registered
+            const emailExists = await checkEmailExists(invitationData.invited_email);
+            setIsExistingUser(emailExists);
           }
         }
       } catch (err) {
@@ -69,7 +81,7 @@ export function AcceptInvitation() {
 
     try {
       await memberService.acceptInvitationExistingUser(token!);
-      navigate('/groups', { 
+      navigate(`/group/${invitation.group_id}`, { 
         replace: true,
         state: { message: `¡Te has unido exitosamente al grupo "${invitation.group_name}"!` }
       });
@@ -97,11 +109,13 @@ export function AcceptInvitation() {
 
       await memberService.acceptInvitation(acceptData);
       
-      navigate('/login', { 
+      // Show email confirmation message instead of redirecting to login
+      navigate('/email-confirmation', { 
         replace: true,
         state: { 
-          message: `¡Cuenta creada exitosamente! Te has unido al grupo "${invitation.group_name}". Por favor inicia sesión.`,
-          email: formData.email
+          email: formData.email,
+          groupName: invitation.group_name,
+          message: `¡Cuenta creada exitosamente! Revisa tu email (${formData.email}) para confirmar tu cuenta. Después de confirmar, serás automáticamente agregado al grupo "${invitation.group_name}".`
         }
       });
     } catch (err) {
@@ -191,6 +205,45 @@ export function AcceptInvitation() {
     );
   }
 
+  // Show login prompt if user exists but not logged in
+  if (isExistingUser && !user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+          <div className="text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
+              <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Cuenta Encontrada!</h2>
+            <p className="text-gray-600 mb-6">
+              Ya tienes una cuenta con el email <strong>{invitation.invited_email}</strong>. 
+              Por favor inicia sesión para unirte al grupo <strong>{invitation.group_name}</strong>.
+            </p>
+            <div className="bg-gray-50 p-4 rounded-lg mb-6">
+              <p className="text-sm text-gray-700">
+                <strong>Grupo:</strong> {invitation.group_name}
+              </p>
+              <p className="text-sm text-gray-700">
+                <strong>Rol:</strong> {getRoleDisplayName(invitation.role)}
+              </p>
+              <p className="text-sm text-gray-700">
+                <strong>Invitado por:</strong> {invitation.invited_by_name}
+              </p>
+            </div>
+            <Link
+              to={`/login?invitation=${token}&email=${encodeURIComponent(invitation.invited_email)}`}
+              className="w-full inline-flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Iniciar Sesión para Unirse
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Show signup form for new users
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -201,9 +254,9 @@ export function AcceptInvitation() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Unirse al Equipo</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Crear Cuenta</h2>
           <p className="text-gray-600">
-            Has sido invitado a unirte al grupo <strong>{invitation.group_name}</strong> como {getRoleDisplayName(invitation.role)}.
+            Crea tu cuenta para unirte al grupo <strong>{invitation.group_name}</strong> como {getRoleDisplayName(invitation.role)}.
           </p>
         </div>
 

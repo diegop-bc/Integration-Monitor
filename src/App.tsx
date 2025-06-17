@@ -9,6 +9,8 @@ import FeedView from './pages/FeedView'
 import UnifiedFeedPage from './pages/UnifiedFeedPage'
 import LoginPage from './pages/LoginPage'
 import { AcceptInvitation } from './pages/AcceptInvitation'
+import { EmailConfirmationPage } from './pages/EmailConfirmationPage'
+import { ConfirmEmailPage } from './pages/ConfirmEmailPage'
 import './App.css'
 
 const queryClient = new QueryClient({
@@ -55,6 +57,8 @@ function App() {
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/invite/:token" element={<AcceptInvitation />} />
+            <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
+            <Route path="/confirm-email" element={<ConfirmEmailPage />} />
             
             {/* Protected routes */}
             <Route path="/*" element={
