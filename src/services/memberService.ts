@@ -10,62 +10,58 @@ import type {
 
 export class MemberService {
   /**
-   * Get all members of a group
+   * Check if user is owner of a group
+   */
+  private async isGroupOwner(groupId: string): Promise<boolean> {
+    const { data, error } = await supabase.rpc('is_group_owner', { group_uuid: groupId });
+    if (error) {
+      console.error('Error checking group ownership:', error);
+      return false;
+    }
+    return data === true;
+  }
+
+  /**
+   * Check if user is admin or owner of a group
+   */
+  private async isGroupAdminOrOwner(groupId: string): Promise<boolean> {
+    const { data, error } = await supabase.rpc('is_group_admin_or_owner', { group_uuid: groupId });
+    if (error) {
+      console.error('Error checking group admin/owner status:', error);
+      return false;
+    }
+    return data === true;
+  }
+
+  /**
+   * Get all members of a group using RPC function
    */
   async getGroupMembers(groupId: string): Promise<GroupMember[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // First check if user has access to this group
-    const { data: groupAccess } = await supabase
-      .from('user_group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', user.id)
-      .single();
+    // Use RPC function to get members with profile data
+    const { data: members, error } = await supabase
+      .rpc('get_group_members_with_profiles', { group_uuid: groupId });
 
-    if (!groupAccess) {
-      // Check if user is owner
-      const { data: group } = await supabase
-        .from('user_groups')
-        .select('owner_id')
-        .eq('id', groupId)
-        .single();
-
-      if (!group || group.owner_id !== user.id) {
-        throw new Error('Access denied');
-      }
+    if (error) {
+      console.error('Error fetching group members:', error);
+      throw new Error(`Error al cargar los miembros del grupo: ${error.message}`);
     }
 
-    // Get all group members
-    const { data: members, error } = await supabase
-      .from('user_group_members')
-      .select('*')
-      .eq('group_id', groupId)
-      .order('joined_at', { ascending: true });
-
-    if (error) throw error;
     if (!members) return [];
 
-    // Get user details for each member
-    const memberDetails = await Promise.all(
-      members.map(async (member) => {
-        const { data: userProfile } = await supabase.auth.admin.getUserById(member.user_id);
-        
-        return {
-          id: member.user_id,
-          email: userProfile.user?.email || 'Unknown',
-          name: userProfile.user?.user_metadata?.name || userProfile.user?.user_metadata?.full_name,
-          role: member.role,
-          joined_at: member.joined_at,
-          user_id: member.user_id,
-          group_id: member.group_id,
-          last_active: userProfile.user?.last_sign_in_at,
-        };
-      })
-    );
-
-    return memberDetails;
+    // Transform the data to match GroupMember interface
+    return members.map((member: any) => ({
+      id: member.id,
+      email: member.email,
+      name: member.name || member.full_name,
+      role: member.role,
+      joined_at: member.joined_at,
+      user_id: member.user_id,
+      group_id: groupId,
+      last_active: member.last_sign_in_at,
+    }));
   }
 
   /**
@@ -75,34 +71,20 @@ export class MemberService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Check if user has permission to invite members
-    const { data: membership } = await supabase
-      .from('user_group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', user.id)
-      .single();
-
-    const { data: group } = await supabase
-      .from('user_groups')
-      .select('owner_id, name')
-      .eq('id', groupId)
-      .single();
-
-    if (!group) throw new Error('Group not found');
-
-    const isOwner = group.owner_id === user.id;
-    const canInvite = isOwner || (membership && ['admin'].includes(membership.role));
-
+    // Check if user has permission to invite members using helper function
+    const canInvite = await this.isGroupAdminOrOwner(groupId);
     if (!canInvite) {
       throw new Error('Permission denied: Cannot invite members');
     }
 
-    // Check if user already exists by trying to get users (simplified approach)
-    // For MVP, we'll create invitation first and handle existing users during acceptance
-    const token = crypto.randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+    // Get group info
+    const { data: group } = await supabase
+      .from('user_groups')
+      .select('name')
+      .eq('id', groupId)
+      .maybeSingle();
+
+    if (!group) throw new Error('Group not found');
 
     // Check if invitation already exists
     const { data: existingInvite } = await supabase
@@ -111,11 +93,15 @@ export class MemberService {
       .eq('group_id', groupId)
       .eq('invited_email', inviteData.email)
       .is('accepted_at', null)
-      .single();
+      .maybeSingle();
 
     if (existingInvite) {
       throw new Error('An invitation to this email already exists');
     }
+
+    const token = crypto.randomUUID();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
 
     const { error: inviteError } = await supabase
       .from('group_invitations')
@@ -132,10 +118,9 @@ export class MemberService {
 
     // Send invitation email
     try {
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      const inviterName = currentUser?.user_metadata?.name || 
-                         currentUser?.user_metadata?.full_name || 
-                         currentUser?.email || 
+      const inviterName = user.user_metadata?.name || 
+                         user.user_metadata?.full_name || 
+                         user.email || 
                          'Someone';
 
       await emailService.sendInvitationEmail({
@@ -149,77 +134,51 @@ export class MemberService {
       console.log(`✅ Invitation email sent to ${inviteData.email}`);
     } catch (emailError) {
       console.error('Failed to send invitation email:', emailError);
-      // Don't throw error here - invitation was created successfully
-      // The user can still use the invitation link manually
     }
 
-    // TODO: Send invitation email with signup link
     console.log(`Invitation sent to ${inviteData.email} with token: ${token}`);
   }
 
   /**
-   * Get pending invitations for a group
+   * Get pending invitations for a group using RPC function
    */
   async getGroupInvitations(groupId: string): Promise<GroupInvitation[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Check access permissions
-    const { data: membership } = await supabase
-      .from('user_group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', user.id)
-      .single();
+    // Use RPC function to get invitations with inviter profile data
+    const { data: invitations, error } = await supabase
+      .rpc('get_group_invitations_with_profiles', { group_uuid: groupId });
 
-    const { data: group } = await supabase
-      .from('user_groups')
-      .select('owner_id, name')
-      .eq('id', groupId)
-      .single();
-
-    if (!group) throw new Error('Group not found');
-
-    const isOwner = group.owner_id === user.id;
-    const canView = isOwner || (membership && ['admin'].includes(membership.role));
-
-    if (!canView) {
-      throw new Error('Permission denied');
+    if (error) {
+      console.error('Error fetching group invitations:', error);
+      throw new Error(`Error al cargar las invitaciones del grupo: ${error.message}`);
     }
 
-    const { data: invitations, error } = await supabase
-      .from('group_invitations')
-      .select('*')
-      .eq('group_id', groupId)
-      .is('accepted_at', null)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
     if (!invitations) return [];
 
-    // Get inviter details for each invitation
-    const invitationDetails = await Promise.all(
-      invitations.map(async (inv) => {
-        const { data: inviterProfile } = await supabase.auth.admin.getUserById(inv.invited_by);
-        
-        return {
-          id: inv.id,
-          group_id: inv.group_id,
-          group_name: group.name,
-          invited_email: inv.invited_email,
-          invited_by: inv.invited_by,
-          invited_by_name: inviterProfile.user?.user_metadata?.name || inviterProfile.user?.user_metadata?.full_name || inviterProfile.user?.email,
-          role: inv.role,
-          token: inv.token,
-          expires_at: inv.expires_at,
-          created_at: inv.created_at,
-          accepted_at: inv.accepted_at,
-          is_expired: new Date(inv.expires_at) < new Date(),
-        };
-      })
-    );
+    // Get group name for invitations
+    const { data: group } = await supabase
+      .from('user_groups')
+      .select('name')
+      .eq('id', groupId)
+      .maybeSingle();
 
-    return invitationDetails;
+    // Transform the data to match GroupInvitation interface
+    return invitations.map((invitation: any) => ({
+      id: invitation.id,
+      group_id: invitation.group_id,
+      group_name: group?.name || 'Unknown Group',
+      invited_email: invitation.invited_email,
+      invited_by: invitation.invited_by,
+      invited_by_name: invitation.invited_by_name,
+      role: invitation.role,
+      token: invitation.token,
+      expires_at: invitation.expires_at,
+      created_at: invitation.created_at,
+      accepted_at: invitation.accepted_at,
+      is_expired: invitation.is_expired,
+    }));
   }
 
   /**
@@ -229,32 +188,26 @@ export class MemberService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Check permissions
-    const { data: membership } = await supabase
-      .from('user_group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', user.id)
-      .single();
-
-    const { data: group } = await supabase
-      .from('user_groups')
-      .select('owner_id')
-      .eq('id', groupId)
-      .single();
-
-    if (!group) throw new Error('Group not found');
-
-    const isOwner = group.owner_id === user.id;
-    const canManage = isOwner || (membership && ['admin'].includes(membership.role));
-
+    // Check permissions using helper function
+    const canManage = await this.isGroupAdminOrOwner(groupId);
     if (!canManage) {
       throw new Error('Permission denied: Cannot manage members');
     }
 
-    // Cannot update owner role
-    if (updateData.user_id === group.owner_id) {
-      throw new Error('Cannot change owner role');
+    // Check if trying to update owner role
+    const isOwner = await this.isGroupOwner(groupId);
+    if (!isOwner) {
+      // Non-owners cannot update admin roles
+      const { data: targetMember } = await supabase
+        .from('user_group_members')
+        .select('role')
+        .eq('group_id', groupId)
+        .eq('user_id', updateData.user_id)
+        .maybeSingle();
+
+      if (targetMember?.role === 'admin' || updateData.role === 'admin') {
+        throw new Error('Only group owners can manage admin roles');
+      }
     }
 
     const { error } = await supabase
@@ -273,32 +226,36 @@ export class MemberService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Check permissions
-    const { data: membership } = await supabase
-      .from('user_group_members')
-      .select('role')
-      .eq('group_id', groupId)
-      .eq('user_id', user.id)
-      .single();
-
-    const { data: group } = await supabase
-      .from('user_groups')
-      .select('owner_id')
-      .eq('id', groupId)
-      .single();
-
-    if (!group) throw new Error('Group not found');
-
-    const isOwner = group.owner_id === user.id;
-    const canRemove = isOwner || (membership && ['admin'].includes(membership.role));
-
+    // Check permissions using helper function
+    const canRemove = await this.isGroupAdminOrOwner(groupId);
     if (!canRemove) {
       throw new Error('Permission denied: Cannot remove members');
     }
 
-    // Cannot remove owner
-    if (userId === group.owner_id) {
+    // Check if trying to remove owner
+    const { data: group } = await supabase
+      .from('user_groups')
+      .select('owner_id')
+      .eq('id', groupId)
+      .maybeSingle();
+
+    if (group?.owner_id === userId) {
       throw new Error('Cannot remove group owner');
+    }
+
+    // Non-owners cannot remove admins
+    const isOwner = await this.isGroupOwner(groupId);
+    if (!isOwner) {
+      const { data: targetMember } = await supabase
+        .from('user_group_members')
+        .select('role')
+        .eq('group_id', groupId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (targetMember?.role === 'admin') {
+        throw new Error('Only group owners can remove admins');
+      }
     }
 
     const { error } = await supabase
@@ -404,7 +361,7 @@ export class MemberService {
       .from('group_invitations')
       .select('group_id, invited_by')
       .eq('id', invitationId)
-      .single();
+      .maybeSingle();
 
     if (!invitation) throw new Error('Invitation not found');
 
@@ -418,13 +375,13 @@ export class MemberService {
         .select('role')
         .eq('group_id', invitation.group_id)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       const { data: group } = await supabase
         .from('user_groups')
         .select('owner_id')
         .eq('id', invitation.group_id)
-        .single();
+        .maybeSingle();
 
       const isOwner = group?.owner_id === user.id;
       const isAdmin = membership?.role === 'admin';
@@ -452,7 +409,7 @@ export class MemberService {
       .from('group_invitations')
       .select('*')
       .eq('token', token)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error fetching invitation by token:', error);
@@ -469,7 +426,7 @@ export class MemberService {
       .from('user_groups')
       .select('name')
       .eq('id', invitation.group_id)
-      .single();
+      .maybeSingle();
 
     // Don't try to get inviter details for anonymous users to avoid auth.admin errors
     const inviterName = 'Un miembro del equipo';

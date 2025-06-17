@@ -168,7 +168,14 @@ export async function getFeedItems(feedId: string): Promise<{ items: FeedItem[];
   try {
     const { data: items, error } = await supabase
       .from('feed_items')
-      .select('*')
+      .select(`
+        *,
+        feeds!inner(
+          id,
+          title,
+          url
+        )
+      `)
       .eq('feed_id', feedId)
       .order('pub_date', { ascending: false });
 
@@ -193,6 +200,12 @@ export async function getFeedItems(feedId: string): Promise<{ items: FeedItem[];
       integrationName: item.integration_name,
       integrationAlias: item.integration_alias,
       createdAt: item.created_at,
+      // Add feed metadata
+      feedInfo: {
+        id: item.feeds.id,
+        title: item.feeds.title,
+        url: item.feeds.url,
+      }
     }));
 
     return { items: mappedItems };
@@ -216,8 +229,8 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
         *,
         feeds!inner(
           id,
-          integration_name,
-          integration_alias
+          title,
+          url
         )
       `)
       .order('pub_date', { ascending: false })
@@ -255,6 +268,12 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
       integrationName: item.integration_name,
       integrationAlias: item.integration_alias,
       createdAt: item.created_at,
+      // Add feed metadata
+      feedInfo: {
+        id: item.feeds.id,
+        title: item.feeds.title,
+        url: item.feeds.url,
+      }
     }));
 
     return { items: mappedItems };
@@ -283,6 +302,8 @@ export async function getAllFeedItemsPaginated(
         *,
         feeds!inner(
           id,
+          title,
+          url,
           integration_name,
           integration_alias
         )

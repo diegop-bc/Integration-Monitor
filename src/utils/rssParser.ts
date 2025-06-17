@@ -36,9 +36,18 @@ async function parseRSSContent(xmlContent: string, url: string, integrationName:
                    item.querySelector('published')?.textContent || 
                    item.querySelector('updated')?.textContent ||
                    new Date().toISOString();
-    const guid = item.querySelector('guid')?.textContent || 
-                item.querySelector('id')?.textContent || 
-                `${url}-${index}`;
+
+    // Mejora en la generación de GUID/ID único
+    let guid = item.querySelector('guid')?.textContent || 
+               item.querySelector('id')?.textContent;
+    
+    // Si no hay GUID, crear uno más robusto usando link + fecha + título
+    if (!guid) {
+      // Crear un hash simple del título + link + fecha para evitar duplicados
+      const hashInput = `${link}-${pubDate}-${title}`.replace(/\s+/g, '-').toLowerCase();
+      // Si aún no es único, usar el URL + índice como último recurso
+      guid = hashInput || `${url}-${index}`;
+    }
 
     // Sanitize HTML content to plain text
     const sanitizedContent = sanitizeHtmlToText(content);
@@ -57,36 +66,55 @@ async function parseRSSContent(xmlContent: string, url: string, integrationName:
     });
   });
 
+  console.log(`📋 [Debug] parseRSSContent: Parseados ${items.length} items del feed ${url}`);
+  
+  // Mostrar algunos IDs para debug
+  if (items.length > 0) {
+    console.log(`🔑 [Debug] Ejemplos de IDs generados:`, items.slice(0, 3).map(item => ({
+      id: item.id,
+      title: item.title.substring(0, 30) + '...'
+    })));
+  }
+
   return items;
 }
 
 export async function parseFeed(url: string, integrationName: string, integrationAlias?: string): Promise<{ items: FeedItem[]; error?: FeedError }> {
   try {
-    console.log('Parsing feed:', { url, integrationName, isDevelopment });
+    console.log(`🌐 [Debug] Iniciando parseo de feed: ${integrationName} - ${url}`);
     
     // TEMPORARY: Always use CORS proxy to avoid serverless function issues
     const proxyUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
-    console.log('Using CORS proxy:', proxyUrl);
+    console.log(`🔗 [Debug] Usando CORS proxy: ${proxyUrl}`);
     
     const response = await fetch(proxyUrl);
     
     if (!response.ok) {
-      console.error('CORS proxy failed, trying direct fetch...');
+      console.error(`❌ [Debug] CORS proxy falló (${response.status}), intentando fetch directo...`);
       // Fallback: try direct fetch (might work for some feeds)
       const directResponse = await fetch(url);
       if (!directResponse.ok) {
         throw new Error(`Both proxy and direct fetch failed. HTTP ${response.status}: ${response.statusText}`);
       }
       const xmlContent = await directResponse.text();
+      console.log(`📄 [Debug] Contenido XML obtenido vía fetch directo: ${xmlContent.length} caracteres`);
       const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
-      console.log('Successfully parsed', items.length, 'items via direct fetch');
+      console.log(`✅ [Debug] Successfully parsed ${items.length} items via direct fetch`);
       return { items };
     }
     
     const xmlContent = await response.text();
+    console.log(`📄 [Debug] Contenido XML obtenido vía CORS proxy: ${xmlContent.length} caracteres`);
+    
+    // Mostrar una muestra del contenido XML para debug
+    if (xmlContent.length > 0) {
+      const xmlSample = xmlContent.substring(0, 500) + (xmlContent.length > 500 ? '...' : '');
+      console.log(`🔎 [Debug] Muestra del XML:`, xmlSample);
+    }
+    
     const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
     
-    console.log('Successfully parsed', items.length, 'items');
+    console.log(`✅ [Debug] Parseo completado exitosamente: ${items.length} items parseados`);
     return { items };
     
     // Original conditional logic commented out temporarily
@@ -142,7 +170,7 @@ export async function parseFeed(url: string, integrationName: string, integratio
     }
     */
   } catch (error) {
-    console.error('Feed parsing error:', error);
+    console.error(`💥 [Debug] Error en parseFeed para ${url}:`, error);
     const feedError: FeedError = {
       code: 'NETWORK_ERROR',
       message: error instanceof Error ? error.message : 'Failed to fetch feed',

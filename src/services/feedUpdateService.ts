@@ -6,6 +6,8 @@ const FETCH_INTERVAL = 4 * 60 * 60 * 1000; // 4 horas en millisegundos (servidor
 
 export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: FeedItem[]; error?: FeedError }> {
   try {
+    console.log(`🔍 [Debug] Iniciando actualización para feed: ${feedId}`);
+    
     // Get the feed details
     const { data: feed, error: feedError } = await supabase
       .from('feeds')
@@ -14,6 +16,7 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       .single();
 
     if (feedError || !feed) {
+      console.error(`❌ [Debug] Error obteniendo feed ${feedId}:`, feedError);
       return {
         newItems: [],
         error: {
@@ -24,6 +27,8 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       };
     }
 
+    console.log(`📊 [Debug] Feed encontrado: ${feed.integration_name} - URL: ${feed.url}`);
+
     // Parse the feed
     const { items, error: parseError } = await parseFeed(
       feed.url,
@@ -32,16 +37,29 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
     );
 
     if (parseError) {
+      console.error(`❌ [Debug] Error parseando feed ${feedId}:`, parseError);
       return { newItems: [], error: parseError };
+    }
+
+    console.log(`📥 [Debug] Items parseados del feed remoto: ${items.length}`);
+    
+    // Mostrar los primeros 3 items para debug
+    if (items.length > 0) {
+      console.log(`🔎 [Debug] Primeros items del feed remoto:`, items.slice(0, 3).map(item => ({
+        id: item.id,
+        title: item.title.substring(0, 50) + '...',
+        pubDate: item.pubDate
+      })));
     }
 
     // Get existing items
     const { data: existingItems, error: existingError } = await supabase
       .from('feed_items')
-      .select('id')
+      .select('id, title, pub_date')
       .eq('feed_id', feedId);
 
     if (existingError) {
+      console.error(`❌ [Debug] Error obteniendo items existentes para feed ${feedId}:`, existingError);
       return {
         newItems: [],
         error: {
@@ -52,11 +70,37 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       };
     }
 
+    console.log(`📚 [Debug] Items existentes en BD: ${existingItems?.length || 0}`);
+    
+    // Mostrar los primeros 3 items existentes para debug
+    if (existingItems && existingItems.length > 0) {
+      console.log(`🔎 [Debug] Primeros items en BD:`, existingItems.slice(0, 3).map(item => ({
+        id: item.id,
+        title: item.title?.substring(0, 50) + '...',
+        pubDate: item.pub_date
+      })));
+    }
+
     // Filter out existing items
     const existingIds = new Set(existingItems?.map((item: any) => item.id) || []);
     const newItems = items.filter(item => !existingIds.has(item.id));
 
+    console.log(`🆕 [Debug] Items nuevos detectados: ${newItems.length}`);
+    
+    // Mostrar los items nuevos para debug
     if (newItems.length > 0) {
+      console.log(`🔎 [Debug] Items nuevos:`, newItems.map(item => ({
+        id: item.id,
+        title: item.title.substring(0, 50) + '...',
+        pubDate: item.pubDate
+      })));
+    } else {
+      console.log(`ℹ️ [Debug] No se encontraron items nuevos. Todos los items ya existen en la BD.`);
+    }
+
+    if (newItems.length > 0) {
+      console.log(`💾 [Debug] Insertando ${newItems.length} items nuevos en la BD...`);
+      
       // Insert new items usando upsert para manejar duplicados y RLS
       const { error: insertError } = await supabase
         .from('feed_items')
@@ -71,15 +115,18 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
           integration_name: item.integrationName,
           integration_alias: item.integrationAlias,
           created_at: item.createdAt,
+          user_id: feed.user_id,
+          group_id: feed.group_id,
         })), {
           onConflict: 'id',
           ignoreDuplicates: true
         });
 
       if (insertError) {
+        console.error(`❌ [Debug] Error insertando items:`, insertError);
         // Si es un error de RLS pero los elementos ya existen, no es un error crítico
         if (insertError.code === '42501' || insertError.message.includes('row-level security')) {
-          console.warn('RLS policy blocked some items (likely duplicates):', insertError.message);
+          console.warn('⚠️ [Debug] RLS policy blocked some items (likely duplicates):', insertError.message);
           // No retornamos error, continuamos con la actualización
         } else {
           return {
@@ -91,6 +138,8 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
             },
           };
         }
+      } else {
+        console.log(`✅ [Debug] Items insertados exitosamente en la BD`);
       }
     }
 
@@ -100,8 +149,12 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       .update({ last_fetched: new Date().toISOString() })
       .eq('id', feedId);
 
+    console.log(`🔄 [Debug] Timestamp de última actualización actualizado para feed ${feedId}`);
+    console.log(`🎉 [Debug] Actualización completada. ${newItems.length} items nuevos agregados.`);
+
     return { newItems };
   } catch (error) {
+    console.error(`💥 [Debug] Error general en fetchFeedUpdates:`, error);
     return {
       newItems: [],
       error: {
