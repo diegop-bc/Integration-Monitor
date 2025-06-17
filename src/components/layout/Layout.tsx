@@ -11,7 +11,20 @@ interface LayoutProps {
 const Layout = ({ children }: LayoutProps) => {
   const location = useLocation();
   const { user, signOut } = useAuth();
-  const { currentGroup } = useGroup();
+  
+  // Handle case where useGroup might be called outside provider during hot reload
+  let currentGroup = null;
+  let hasGroupContext = false;
+  
+  try {
+    const groupContext = useGroup();
+    currentGroup = groupContext.currentGroup;
+    hasGroupContext = true;
+  } catch (error) {
+    // If useGroup fails (hot reload issue), continue without group context
+    console.warn('GroupProvider not available, likely due to hot reload');
+    hasGroupContext = false;
+  }
   
   const handleSignOut = async () => {
     try {
@@ -55,7 +68,8 @@ const Layout = ({ children }: LayoutProps) => {
             
             {/* Group Switcher */}
             <div className="flex-1 max-w-sm mx-8">
-              <GroupSwitcher />
+              {/* Only render GroupSwitcher if we have group context */}
+              {hasGroupContext && <GroupSwitcher />}
             </div>
             
             <div className="flex items-center gap-6">

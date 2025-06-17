@@ -30,14 +30,6 @@ const Dashboard = React.memo(() => {
   // Hook for manual feed updates
   const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(null)
 
-  console.log('📊 Dashboard render:', {
-    userId: user?.id,
-    paramsGroupId: params.groupId,
-    isGroupMode,
-    groupId,
-    allParams: params
-  });
-
   // Fetch feeds with user context (personal feeds only) - ALWAYS call hooks
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
     queryKey: ['feeds', user?.id, 'personal'],
@@ -104,11 +96,8 @@ const Dashboard = React.memo(() => {
 
   // NOW we can do early returns after all hooks are called
   if (isGroupMode) {
-    console.log('🏢 Rendering GroupDashboard for group:', groupId);
     return <GroupDashboard groupId={groupId} />
   }
-
-  console.log('🏠 Rendering Personal Dashboard');
 
   const handleAddFeed = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()

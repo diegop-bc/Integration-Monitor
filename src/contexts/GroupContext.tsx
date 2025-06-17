@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { groupService } from '../services/groupService';
 import type { GroupContextType, GroupWithMembership, CreateGroupRequest, UpdateGroupRequest, PublicGroup } from '../types/group';
@@ -31,235 +31,171 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingPublicGroup, setIsCheckingPublicGroup] = useState(false);
 
+  // Use refs to prevent unnecessary effect triggers
+  const lastGroupIdRef = useRef<string | undefined>(undefined);
+  const lastUserIdRef = useRef<string | undefined>(undefined);
+  const isInitializedRef = useRef(false);
+
   // Memoize the current group ID from URL to prevent unnecessary effects
   const groupIdFromUrl = useMemo(() => {
     return params.groupId;
   }, [params.groupId]);
 
-  // Memoized function to prevent unnecessary re-creations
+  // Simplified public group check - no excessive logging
   const checkPublicGroup = useCallback(async (groupId: string) => {
+    if (isCheckingPublicGroup) return; // Prevent multiple concurrent checks
+    
     try {
-      console.log('🔍 Checking if group is public:', groupId);
       setIsCheckingPublicGroup(true);
       const publicGroup = await groupService.getPublicGroup(groupId);
       
       if (publicGroup) {
-        console.log('✅ Found public group:', {
-          groupName: publicGroup.name,
-          groupId: publicGroup.id,
-          canJoin: publicGroup.can_join,
-          userRole: publicGroup.user_role
-        });
         setCurrentPublicGroup(publicGroup);
-        setCurrentGroup(null); // Clear any private group
-        localStorage.removeItem(STORAGE_KEY); // Don't save public groups to localStorage
+        setCurrentGroup(null);
+        localStorage.removeItem(STORAGE_KEY);
       } else {
-        console.log('❌ Group not found or not public, redirecting to personal:', {
-          requestedGroupId: groupId,
-          availableGroups: userGroups.map(g => ({ id: g.id, name: g.name }))
-        });
-        // Group not found or not public, redirect to personal
         navigate('/personal', { replace: true });
       }
     } catch (error) {
-      console.error('❌ Error checking public group:', error);
-      // On error, redirect to personal
+      console.error('Error checking public group:', error);
       navigate('/personal', { replace: true });
     } finally {
       setIsCheckingPublicGroup(false);
     }
-  }, [navigate, userGroups]);
+  }, [navigate, isCheckingPublicGroup]);
 
-  // Load user's groups when authenticated - FIXED: Remove currentGroup dependency to prevent infinite loop
+  // Load user's groups - simplified effect
   useEffect(() => {
-    if (user) {
-      console.log('👤 User authenticated, loading groups...');
-      const loadGroups = async () => {
-        setIsLoading(true);
-        
-        try {
-          const groups = await groupService.getUserGroups();
-          console.log('✅ Groups loaded:', groups.length, 'groups');
-          setUserGroups(groups);
-        } catch (error) {
-          console.error('❌ Failed to load groups:', error);
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      
-      loadGroups();
-    } else {
-      console.log('🚪 User logged out, clearing groups...');
-      // Clear groups when user logs out
+    if (!user?.id || lastUserIdRef.current === user.id) return;
+    lastUserIdRef.current = user.id;
+
+    const loadGroups = async () => {
+      setIsLoading(true);
+      try {
+        const groups = await groupService.getUserGroups();
+        setUserGroups(groups);
+        isInitializedRef.current = true;
+      } catch (error) {
+        console.error('Failed to load groups:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadGroups();
+  }, [user?.id]);
+
+  // Clear state when user logs out
+  useEffect(() => {
+    if (!user) {
       setUserGroups([]);
       setCurrentGroup(null);
       setCurrentPublicGroup(null);
       setIsLoading(false);
       localStorage.removeItem(STORAGE_KEY);
+      lastUserIdRef.current = undefined;
+      isInitializedRef.current = false;
     }
-  }, [user?.id]); // FIXED: Removed currentGroup and navigate dependencies
+  }, [user]);
 
-  // Separate effect to handle current group updates when userGroups change
+  // Simplified URL sync - only when necessary
   useEffect(() => {
-    if (currentGroup && userGroups.length > 0) {
-      const updatedCurrentGroup = userGroups.find(g => g.id === currentGroup.id);
-      if (updatedCurrentGroup) {
-        console.log('✅ Current group updated with fresh data');
-        setCurrentGroup(updatedCurrentGroup);
-      } else {
-        console.log('❌ Current group no longer exists, switching to personal');
-        setCurrentGroup(null);
-        localStorage.removeItem(STORAGE_KEY);
-        navigate('/personal', { replace: true });
-      }
-    }
-  }, [userGroups, currentGroup?.id, navigate]); // Only depend on userGroups and currentGroup.id
-
-  // Sync current group with URL parameters - optimized with fewer dependencies
-  useEffect(() => {
-    // Skip if still loading user groups or checking public group
-    if (isLoading || isCheckingPublicGroup) {
+    // Skip if not initialized or still loading
+    if (!isInitializedRef.current || isLoading || isCheckingPublicGroup) {
       return;
     }
 
-    if (userGroups.length > 0 || (!user && !isLoading)) {
-      if (groupIdFromUrl) {
-        // URL has a group ID, first check user's groups
-        const urlGroup = userGroups.find(g => g.id === groupIdFromUrl);
-        
-        if (urlGroup && urlGroup.id !== currentGroup?.id) {
-          console.log('✅ Found group in userGroups, setting as current:', urlGroup.name);
+    // Skip if group ID hasn't changed
+    if (lastGroupIdRef.current === groupIdFromUrl) {
+      return;
+    }
+    lastGroupIdRef.current = groupIdFromUrl;
+
+    if (groupIdFromUrl) {
+      // Check user's groups first
+      const urlGroup = userGroups.find(g => g.id === groupIdFromUrl);
+      
+      if (urlGroup) {
+        if (urlGroup.id !== currentGroup?.id) {
           setCurrentGroup(urlGroup);
-          setCurrentPublicGroup(null); // Clear any public group
-          localStorage.setItem(STORAGE_KEY, urlGroup.id);
-        } else if (!urlGroup && !currentPublicGroup) {
-          console.log('❓ Group not found in userGroups, checking if it\'s a public group');
-          // Clear localStorage when navigating to a group not in userGroups (likely public)
-          localStorage.removeItem(STORAGE_KEY);
-          // Group not found in user's groups, check if it's a public group
-          checkPublicGroup(groupIdFromUrl);
-        }
-      } else if (location.pathname.startsWith('/personal') || location.pathname === '/') {
-        // URL indicates personal workspace
-        if (currentGroup || currentPublicGroup) {
-          console.log('🔄 Switching to personal workspace');
-          setCurrentGroup(null);
           setCurrentPublicGroup(null);
-          localStorage.removeItem(STORAGE_KEY);
+          localStorage.setItem(STORAGE_KEY, urlGroup.id);
         }
-      } else if (!currentGroup && !currentPublicGroup && !groupIdFromUrl) {
-        // No group in URL and no current group, try to restore from localStorage
-        // BUT only if we're not navigating to a specific group URL
-        const savedGroupId = localStorage.getItem(STORAGE_KEY);
-        if (savedGroupId && !location.pathname.includes('/group/')) {
-          const savedGroup = userGroups.find(g => g.id === savedGroupId);
-          if (savedGroup) {
-            console.log('🔄 Restoring group from localStorage:', savedGroup.name);
-            // Only restore if we're not on a personal workspace path
-            if (!location.pathname.startsWith('/personal') && location.pathname !== '/') {
-              navigate(`/group/${savedGroupId}`, { replace: true });
-            }
-          } else {
-            localStorage.removeItem(STORAGE_KEY);
-          }
-        }
+      } else if (user && !currentPublicGroup) {
+        // Not in user groups, check if public
+        localStorage.removeItem(STORAGE_KEY);
+        checkPublicGroup(groupIdFromUrl);
+      }
+    } else {
+      // No group ID in URL - personal workspace
+      if (currentGroup || currentPublicGroup) {
+        setCurrentGroup(null);
+        setCurrentPublicGroup(null);
+        localStorage.removeItem(STORAGE_KEY);
       }
     }
-  }, [
-    userGroups, 
-    groupIdFromUrl, 
-    currentGroup?.id, 
-    currentPublicGroup?.id, 
-    location.pathname, 
-    isLoading, 
-    isCheckingPublicGroup,
-    user,
-    navigate,
-    checkPublicGroup
-  ]);
+  }, [groupIdFromUrl, userGroups, currentGroup?.id, currentPublicGroup?.id, isLoading, isCheckingPublicGroup, user, checkPublicGroup]);
 
   const switchToGroup = useCallback(async (groupId: string | null) => {    
     if (groupId === null) {
-      console.log('🏠 Switching to Personal mode');
-      // Switch to "Personal" mode
       setCurrentGroup(null);
       setCurrentPublicGroup(null);
       localStorage.removeItem(STORAGE_KEY);
-      
-      // Force navigation to personal workspace with a slight delay to ensure state updates
-      setTimeout(() => {
-        if (location.pathname !== '/personal' && !location.pathname.startsWith('/personal')) {
-          navigate('/personal', { replace: true });
-        }
-      }, 10);
+      navigate('/personal', { replace: true });
       return;
     }
 
     const group = userGroups.find(g => g.id === groupId);
     if (group) {
-      console.log('✅ Switching to group:', group.name);
       setCurrentGroup(group);
-      setCurrentPublicGroup(null); // Clear any public group
+      setCurrentPublicGroup(null);
       localStorage.setItem(STORAGE_KEY, groupId);
-      // Only navigate if we're not already on the correct URL
       if (!location.pathname.includes(`/group/${groupId}`)) {
         navigate(`/group/${groupId}`);
       }
     } else {
-      console.log('❌ Group not found, checking if it\'s public');
-      // If not found in user groups, check if it's a public group
       await checkPublicGroup(groupId);
     }
-  }, [currentGroup, currentPublicGroup, location.pathname, navigate, userGroups, checkPublicGroup]);
+  }, [userGroups, location.pathname, navigate, checkPublicGroup]);
 
-  // Manual sync method for when URL params aren't detected
-  const syncWithUrl = useCallback((urlGroupId: string) => {
-    console.log('🔄 Manual URL sync called for group:', urlGroupId);
-    
+  const syncWithUrl = useCallback((urlGroupId: string) => {    
     if (urlGroupId && urlGroupId !== currentGroup?.id && urlGroupId !== currentPublicGroup?.id) {
       if (userGroups.length > 0) {
         const targetGroup = userGroups.find(g => g.id === urlGroupId);
         if (targetGroup) {
-          console.log('✅ Manual sync: Found group in user groups, setting as current:', targetGroup.name);
           setCurrentGroup(targetGroup);
           setCurrentPublicGroup(null);
           localStorage.setItem(STORAGE_KEY, urlGroupId);
         } else {
-          console.log('❓ Manual sync: Group not found in userGroups, checking if public');
           checkPublicGroup(urlGroupId);
         }
       } else {
-        console.log('❓ Manual sync: No user groups loaded, checking if public');
         checkPublicGroup(urlGroupId);
       }
     }
-  }, [currentGroup, currentPublicGroup, userGroups, checkPublicGroup]);
+  }, [currentGroup?.id, currentPublicGroup?.id, userGroups, checkPublicGroup]);
 
   const refreshGroups = useCallback(async () => {
     if (!user) return;
     
-    console.log('🔄 Refreshing groups...');
     setIsLoading(true);
-    
     try {
       const groups = await groupService.getUserGroups();
       setUserGroups(groups);
       
-      // If current group is set, update it with fresh data
+      // Update current group if it exists
       if (currentGroup) {
         const updatedCurrentGroup = groups.find(g => g.id === currentGroup.id);
         if (updatedCurrentGroup) {
           setCurrentGroup(updatedCurrentGroup);
         } else {
-          // Current group no longer exists or user no longer has access
           setCurrentGroup(null);
           localStorage.removeItem(STORAGE_KEY);
           navigate('/personal', { replace: true });
         }
       }
     } catch (error) {
-      console.error('❌ Failed to refresh groups:', error);
+      console.error('Failed to refresh groups:', error);
     } finally {
       setIsLoading(false);
     }
@@ -267,97 +203,86 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const createGroup = useCallback(async (data: CreateGroupRequest) => {
     try {
-      console.log('➕ Creating new group:', data.name);
       const newGroup = await groupService.createGroup(data);
       
-      // Refresh groups to get the new group with membership info
-      await refreshGroups();
+      // Refresh groups and set new group as current
+      const groups = await groupService.getUserGroups();
+      setUserGroups(groups);
       
-      // Auto-switch to the new group
-      await switchToGroup(newGroup.id);
+      const createdGroupWithMembership = groups.find(g => g.id === newGroup.id);
+      
+      if (createdGroupWithMembership) {
+        setCurrentGroup(createdGroupWithMembership);
+        setCurrentPublicGroup(null);
+        localStorage.setItem(STORAGE_KEY, newGroup.id);
+        navigate(`/group/${newGroup.id}`, { replace: true });
+      } else {
+        await refreshGroups();
+      }
       
       return newGroup;
     } catch (error) {
-      console.error('❌ Failed to create group:', error);
+      console.error('Failed to create group:', error);
       throw error;
     }
-  }, [refreshGroups, switchToGroup]);
+  }, [navigate, refreshGroups]);
 
   const updateGroup = useCallback(async (groupId: string, data: UpdateGroupRequest) => {
     try {
-      console.log('✏️ Updating group:', { groupId, data });
       const updatedGroup = await groupService.updateGroup(groupId, data);
-      
-      // Refresh groups to get updated data
       await refreshGroups();
-      
       return updatedGroup;
     } catch (error) {
-      console.error('❌ Failed to update group:', error);
+      console.error('Failed to update group:', error);
       throw error;
     }
   }, [refreshGroups]);
 
   const deleteGroup = useCallback(async (groupId: string) => {
     try {
-      console.log('🗑️ Deleting group:', groupId);
       await groupService.deleteGroup(groupId);
       
-      // If the deleted group was current, switch to Personal
       if (currentGroup?.id === groupId) {
-        console.log('🔄 Deleted group was current, switching to personal');
         setCurrentGroup(null);
         localStorage.removeItem(STORAGE_KEY);
         navigate('/personal');
       }
       
-      // Refresh groups to remove the deleted group
       await refreshGroups();
     } catch (error) {
-      console.error('❌ Failed to delete group:', error);
+      console.error('Failed to delete group:', error);
       throw error;
     }
   }, [currentGroup, navigate, refreshGroups]);
 
-  // New functions for public/private groups functionality
   const getPublicGroup = useCallback(async (groupId: string) => {
     try {
       return await groupService.getPublicGroup(groupId);
     } catch (error) {
-      console.error('❌ Failed to get public group:', error);
+      console.error('Failed to get public group:', error);
       throw error;
     }
   }, []);
 
   const joinPublicGroup = useCallback(async (groupId: string) => {
     try {
-      console.log('🤝 Joining public group:', groupId);
       const result = await groupService.joinPublicGroup(groupId);
-      
-      // Refresh groups to include the newly joined group
       await refreshGroups();
-      
-      // Switch to the newly joined group
       await switchToGroup(groupId);
-      
       return result;
     } catch (error) {
-      console.error('❌ Failed to join public group:', error);
+      console.error('Failed to join public group:', error);
       throw error;
     }
   }, [refreshGroups, switchToGroup]);
 
   const toggleGroupVisibility = useCallback(async (groupId: string, isPublic: boolean) => {
     try {
-      console.log('🔄 Toggling group visibility:', { groupId, isPublic });
       const result = await groupService.toggleGroupVisibility(groupId, isPublic);
-      
-      // Refresh groups to get updated data
       await refreshGroups();
-      
       return result;
     } catch (error) {
-      console.error('❌ Failed to toggle group visibility:', error);
+      console.error('Failed to toggle group visibility:', error);
       throw error;
     }
   }, [refreshGroups]);
@@ -371,7 +296,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       integration_count: currentPublicGroup.feed_count,
       is_owner: currentPublicGroup.user_role === 'owner',
       can_access: true,
-      owner_id: '', // Public groups don't expose owner_id
+      owner_id: '',
       updated_at: currentPublicGroup.created_at
     } : null),
     userGroups,

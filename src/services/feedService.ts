@@ -112,9 +112,34 @@ export async function addFeed(
 
 export async function getFeeds(groupId?: string | null): Promise<{ feeds: Feed[]; error?: FeedError }> {
   try {
-    // Use RPC function to get accessible feeds
-    const { data: feedsData, error } = await supabase
-      .rpc('get_user_accessible_feeds');
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return {
+        feeds: [],
+        error: {
+          code: 'AUTH_ERROR',
+          message: 'User not authenticated',
+          details: userError,
+        },
+      };
+    }
+
+    let query = supabase
+      .from('feeds')
+      .select('*')
+      .eq('user_id', user.id); // Always filter by current user
+
+    // Filter by group context
+    if (groupId === null || groupId === undefined) {
+      // Personal feeds only (group_id IS NULL)
+      query = query.is('group_id', null);
+    } else {
+      // Specific group feeds only
+      query = query.eq('group_id', groupId);
+    }
+
+    const { data: feedsData, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       return {
@@ -127,18 +152,7 @@ export async function getFeeds(groupId?: string | null): Promise<{ feeds: Feed[]
       };
     }
 
-    // Filter feeds based on groupId parameter
-    let filteredFeeds = feedsData || [];
-    
-    if (groupId === null || groupId === undefined) {
-      // Personal feeds only (group_id IS NULL)
-      filteredFeeds = filteredFeeds.filter((feed: any) => feed.group_id === null);
-    } else {
-      // Specific group feeds only
-      filteredFeeds = filteredFeeds.filter((feed: any) => feed.group_id === groupId);
-    }
-
-    const mappedFeeds = filteredFeeds.map((feed: any) => ({
+    const mappedFeeds = (feedsData || []).map((feed: any) => ({
       id: feed.id,
       url: feed.url,
       title: feed.title,
@@ -222,12 +236,45 @@ export async function getFeedItems(feedId: string): Promise<{ items: FeedItem[];
 
 export async function getAllFeedItems(groupId?: string | null): Promise<{ items: FeedItem[]; error?: FeedError }> {
   try {
-    // Use RPC function to get accessible feed items
-    const { data: itemsData, error } = await supabase
-      .rpc('get_user_accessible_feed_items', { 
-        item_limit: 50,
-        offset_count: 0
-      });
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return {
+        items: [],
+        error: {
+          code: 'AUTH_ERROR',
+          message: 'User not authenticated',
+          details: userError,
+        },
+      };
+    }
+
+    let query = supabase
+      .from('feed_items')
+      .select(`
+        *,
+        feeds!inner(
+          id,
+          title,
+          url,
+          integration_name,
+          integration_alias
+        )
+      `)
+      .eq('user_id', user.id) // Always filter by current user
+      .order('pub_date', { ascending: false })
+      .limit(50);
+
+    // Filter by group context
+    if (groupId === null || groupId === undefined) {
+      // Personal feed items only (group_id IS NULL)
+      query = query.is('group_id', null);
+    } else {
+      // Specific group feed items only
+      query = query.eq('group_id', groupId);
+    }
+
+    const { data: itemsData, error } = await query;
 
     if (error) {
       return {
@@ -240,19 +287,7 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
       };
     }
 
-    // Filter items based on groupId parameter
-    let filteredItems = itemsData || [];
-    
-    if (groupId === null || groupId === undefined) {
-      // Personal feed items only (group_id IS NULL)
-      filteredItems = filteredItems.filter((item: any) => item.user_id && !item.is_public_group);
-    } else {
-      // Specific group feed items only - RPC function handles group filtering
-      // For now, we use all items since RPC already filters by group access
-      filteredItems = itemsData || [];
-    }
-
-    const mappedItems = filteredItems.slice(0, 50).map((item: any) => ({
+    const mappedItems = (itemsData || []).map((item: any) => ({
       id: item.id,
       title: item.title,
       link: item.link,
@@ -264,9 +299,9 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
       createdAt: item.created_at,
       // Add feed metadata
       feedInfo: {
-        id: item.feed_id,
-        title: item.feed_title,
-        url: '', // Not available in RPC response, would need separate query if needed
+        id: item.feeds.id,
+        title: item.feeds.title,
+        url: item.feeds.url,
       }
     }));
 
@@ -342,6 +377,21 @@ export async function getAllFeedItemsPaginated(
   groupId?: string | null
 ): Promise<{ items: FeedItem[]; hasMore: boolean; totalCount: number; error?: FeedError }> {
   try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return {
+        items: [],
+        hasMore: false,
+        totalCount: 0,
+        error: {
+          code: 'AUTH_ERROR',
+          message: 'User not authenticated',
+          details: userError,
+        },
+      };
+    }
+
     let query = supabase
       .from('feed_items')
       .select(`
@@ -354,6 +404,7 @@ export async function getAllFeedItemsPaginated(
           integration_alias
         )
       `, { count: 'exact' })
+      .eq('user_id', user.id) // Always filter by current user
       .order('pub_date', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -551,9 +602,23 @@ export async function getIntegrationsWithCounts(groupId?: string | null): Promis
   error?: FeedError 
 }> {
   try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return {
+        integrations: [],
+        error: {
+          code: 'AUTH_ERROR',
+          message: 'User not authenticated',
+          details: userError,
+        },
+      };
+    }
+
     let query = supabase
       .from('feed_items')
       .select('integration_name, integration_alias')
+      .eq('user_id', user.id) // Always filter by current user
       .order('integration_name');
 
     // Filter by context: personal feed items or specific group feed items

@@ -15,9 +15,6 @@ export function CreateGroupModal({ isOpen, onClose }: CreateGroupModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
 
-  // Debug logging
-  console.log('CreateGroupModal render:', { isOpen });
-
   const handleClose = () => {
     if (!isSubmitting) {
       setName('');

@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useGroup } from '../../contexts/GroupContext';
 import { CreateGroupModal } from './CreateGroupModal';
+import { GroupVisibilityIcon } from './GroupVisibilityBadge';
 
 export function GroupSwitcher() {
   const { currentGroup, userGroups, switchToGroup } = useGroup();
@@ -22,16 +23,13 @@ export function GroupSwitcher() {
     };
   }, []);
 
-  const handleGroupSelect = async (groupId: string | null) => {
-    console.log('🎯 GroupSwitcher: handleGroupSelect called with:', { 
-      groupId, 
-      currentGroupId: currentGroup?.id,
-      currentGroupName: currentGroup?.name 
-    });
-    setIsOpen(false);
-    await switchToGroup(groupId);
-    console.log('✅ GroupSwitcher: switchToGroup completed');
-  };
+  const handleGroupSelect = useCallback(async (groupId: string | null) => {
+    try {
+      await switchToGroup(groupId);
+    } catch (error) {
+      console.error('Error switching group:', error);
+    }
+  }, [switchToGroup]);
 
   const handleCreateGroup = () => {
     setIsOpen(false);
@@ -115,7 +113,10 @@ export function GroupSwitcher() {
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{group.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{group.name}</span>
+                      <GroupVisibilityIcon isPublic={group.is_public} size="sm" />
+                    </div>
                     <div className="text-xs text-gray-500">
                       {group.member_count} {group.member_count === 1 ? 'member' : 'members'} • {group.role}
                     </div>

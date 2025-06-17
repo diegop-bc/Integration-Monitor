@@ -8,6 +8,8 @@ import { useFeedUpdates, useManualFeedUpdate } from '../../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../../utils/textSanitizer';
 import { MemberManagement } from './MemberManagement';
 import { PublicGroupView } from './PublicGroupView';
+import { GroupVisibilityToggle } from './GroupVisibilityToggle';
+import { GroupVisibilityBadge } from './GroupVisibilityBadge';
 import type { Feed, FeedItem } from '../../types/feed';
 import type { PublicGroup } from '../../types/group';
 import { 
@@ -114,32 +116,28 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
 
     // Only check for public group if conditions are met
     if (shouldCheckPublicGroup) {
-      console.log('🔍 GroupDashboard: Checking for public group:', groupId);
       setIsCheckingPublicGroup(true);
       getPublicGroup(groupId!)
         .then((pubGroup) => {
           if (pubGroup) {
-            console.log('📊 GroupDashboard: Found public group, showing public view:', pubGroup.name);
             setPublicGroup(pubGroup);
           } else {
-            console.log('📊 GroupDashboard: Group not public or not found');
             setPublicGroup(null);
           }
         })
         .catch((error) => {
-          console.error('📊 GroupDashboard: Error checking public group:', error);
+          console.error('Error checking public group:', error);
           setPublicGroup(null);
         })
         .finally(() => {
           setIsCheckingPublicGroup(false);
         });
     }
-  }, [shouldCheckPublicGroup, getPublicGroup, groupId, currentGroup]);
+  }, [shouldCheckPublicGroup, getPublicGroup, groupId, currentGroup?.id]);
 
   // Sync with group context if we have a groupId prop but no currentGroup - AFTER all hooks
   useEffect(() => {
     if (shouldSyncWithUrl) {
-      console.log('🔄 GroupDashboard syncing with groupId prop:', groupId);
       syncWithUrl(groupId!);
     }
   }, [shouldSyncWithUrl, syncWithUrl, groupId]);
@@ -214,8 +212,8 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
     return <PublicGroupView group={publicGroup} />;
   }
 
-  // Show loading state while checking for public group
-  if (isCheckingPublicGroup) {
+  // Show loading state while checking for public group or if we're waiting for group context
+  if (isCheckingPublicGroup || (groupId && !currentGroup && userGroups.length === 0)) {
     return (
       <div className="min-h-screen gradient-bg flex items-center justify-center">
         <div className="text-white text-lg">Loading group...</div>
@@ -302,11 +300,17 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getRoleBadgeColor(currentGroup.role)}`}>
                     {currentGroup.role.charAt(0).toUpperCase() + currentGroup.role.slice(1)}
                   </span>
+                  <GroupVisibilityBadge group={currentGroup} size="sm" />
                   <span className="text-sm text-gray-500">
                     Created {formatDate(currentGroup.created_at)}
                   </span>
                 </div>
               </div>
+            </div>
+            
+            {/* Group Settings - Right Side */}
+            <div className="flex flex-col items-end gap-3">
+              <GroupVisibilityToggle group={currentGroup} />
             </div>
           </div>
 
