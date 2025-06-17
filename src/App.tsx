@@ -25,24 +25,26 @@ const queryClient = new QueryClient({
 // Protected routes wrapper component
 function ProtectedRoutes() {
   return (
-    <Layout>
-      <Routes>
-        {/* Personal workspace routes */}
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/personal" element={<Dashboard />} />
-        <Route path="/personal/feed/:feedId" element={<FeedView />} />
-        <Route path="/personal/updates" element={<UnifiedFeedPage />} />
-        
-        {/* Group workspace routes */}
-        <Route path="/group/:groupId" element={<Dashboard />} />
-        <Route path="/group/:groupId/feed/:feedId" element={<FeedView />} />
-        <Route path="/group/:groupId/updates" element={<UnifiedFeedPage />} />
-        
-        {/* Legacy routes for backward compatibility */}
-        <Route path="/feed/:feedId" element={<FeedView />} />
-        <Route path="/updates" element={<UnifiedFeedPage />} />
-      </Routes>
-    </Layout>
+    <GroupProvider>
+      <Layout>
+        <Routes>
+          {/* Personal workspace routes */}
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/personal" element={<Dashboard />} />
+          <Route path="/personal/feed/:feedId" element={<FeedView />} />
+          <Route path="/personal/updates" element={<UnifiedFeedPage />} />
+          
+          {/* Group workspace routes */}
+          <Route path="/group/:groupId" element={<Dashboard />} />
+          <Route path="/group/:groupId/feed/:feedId" element={<FeedView />} />
+          <Route path="/group/:groupId/updates" element={<UnifiedFeedPage />} />
+          
+          {/* Legacy routes for backward compatibility */}
+          <Route path="/feed/:feedId" element={<FeedView />} />
+          <Route path="/updates" element={<UnifiedFeedPage />} />
+        </Routes>
+      </Layout>
+    </GroupProvider>
   );
 }
 
@@ -61,9 +63,7 @@ function App() {
             {/* Protected routes */}
             <Route path="/*" element={
               <AuthGuard>
-                <GroupProvider>
-                  <ProtectedRoutes />
-                </GroupProvider>
+                <ProtectedRoutes />
               </AuthGuard>
             } />
           </Routes>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
@@ -7,8 +7,9 @@ import { addFeed, getFeeds, getAllFeedItems, updateFeed, deleteFeed } from '../s
 import { useFeedUpdates, useManualFeedUpdate } from '../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../utils/textSanitizer'
 import type { Feed, FeedItem } from '../types/feed'
+import React from 'react'
 
-const Dashboard = () => {
+const Dashboard = React.memo(() => {
   const { user } = useAuth()
   const params = useParams()
   const [feedUrl, setFeedUrl] = useState('')
@@ -22,12 +23,12 @@ const Dashboard = () => {
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
+  // Memoize values to prevent unnecessary re-renders
+  const isGroupMode = useMemo(() => !!params.groupId, [params.groupId])
+  const groupId = useMemo(() => params.groupId, [params.groupId])
+
   // Hook for manual feed updates
   const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(null)
-
-  // Determine if we're in group mode based on URL
-  const isGroupMode = !!params.groupId
-  const groupId = params.groupId
 
   console.log('📊 Dashboard render:', {
     userId: user?.id,
@@ -55,14 +56,14 @@ const Dashboard = () => {
   useFeedUpdates()
 
   // Handle manual update
-  const handleManualUpdate = async () => {
+  const handleManualUpdate = useCallback(async () => {
     const result = await updateAllFeeds()
     if (result.success) {
       // Invalidate queries to refresh the UI
       queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
       queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
     }
-  }
+  }, [updateAllFeeds, queryClient, user?.id])
 
   // Add feed mutation - ALWAYS call hooks
   const addFeedMutation = useMutation({
@@ -109,7 +110,7 @@ const Dashboard = () => {
 
   console.log('🏠 Rendering Personal Dashboard');
 
-  const handleAddFeed = async (e: React.FormEvent) => {
+  const handleAddFeed = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     if (!feedUrl || !integrationName) return
 
@@ -125,15 +126,15 @@ const Dashboard = () => {
     } finally {
       setIsSubmitting(false)
     }
-  }
+  }, [feedUrl, integrationName, integrationAlias, addFeedMutation])
 
-  const handleEditFeed = (feed: Feed) => {
+  const handleEditFeed = useCallback((feed: Feed) => {
     setEditingFeed(feed.id)
     setEditName(feed.integrationName)
     setEditAlias(feed.integrationAlias || '')
-  }
+  }, [])
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = useCallback(async () => {
     if (!editingFeed || !editName) return
 
     try {
@@ -145,26 +146,26 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Failed to update feed:', error)
     }
-  }
+  }, [editingFeed, editName, editAlias, updateFeedMutation])
 
-  const handleCancelEdit = () => {
+  const handleCancelEdit = useCallback(() => {
     setEditingFeed(null)
     setEditName('')
     setEditAlias('')
-  }
+  }, [])
 
-  const handleDeleteFeed = async (id: string) => {
+  const handleDeleteFeed = useCallback(async (id: string) => {
     try {
       await deleteFeedMutation.mutateAsync(id)
     } catch (error) {
       console.error('Failed to delete feed:', error)
     }
-  }
+  }, [deleteFeedMutation])
 
   const feeds = feedsData?.feeds || []
   const recentItems = itemsData?.items?.slice(0, 8) || []
 
-  const getIntegrationColor = (integrationName: string) => {
+  const getIntegrationColor = useCallback((integrationName: string) => {
     const colors = [
       { bg: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', text: 'white', accent: '#3b82f6' },
       { bg: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', text: 'white', accent: '#10b981' },
@@ -182,9 +183,9 @@ const Dashboard = () => {
     }, 0);
     
     return colors[Math.abs(hash) % colors.length];
-  };
+  }, []);
 
-  const getTimeAgo = (dateString: string) => {
+  const getTimeAgo = useCallback((dateString: string) => {
     const now = new Date();
     const date = new Date(dateString);
     const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
@@ -199,7 +200,7 @@ const Dashboard = () => {
     if (diffInDays < 7) return `${diffInDays}d ago`;
     
     return new Date(dateString).toLocaleDateString();
-  };
+  }, []);
 
   // Determine the correct updates link based on context
   const updatesLink = isGroupMode ? `/group/${groupId}/updates` : '/personal/updates';
@@ -600,6 +601,8 @@ const Dashboard = () => {
       </div>
     </div>
   )
-}
+})
+
+Dashboard.displayName = 'Dashboard'
 
 export default Dashboard

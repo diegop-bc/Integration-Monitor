@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useGroup } from '../../contexts/GroupContext';
@@ -14,12 +14,13 @@ import {
   getRoleBadgeColor,
   canManageIntegrations
 } from '../../utils/permissions';
+import React from 'react';
 
 interface GroupDashboardProps {
   groupId?: string;
 }
 
-export function GroupDashboard({ groupId }: GroupDashboardProps) {
+export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
   const { currentGroup, userGroups, syncWithUrl, getPublicGroup } = useGroup();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -36,6 +37,15 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null);
   const [publicGroup, setPublicGroup] = useState<PublicGroup | null>(null);
   const [isCheckingPublicGroup, setIsCheckingPublicGroup] = useState(false);
+
+  // Memoize values to prevent unnecessary re-renders
+  const shouldCheckPublicGroup = useMemo(() => {
+    return groupId && !currentGroup && userGroups.length > 0 && !userGroups.find(g => g.id === groupId);
+  }, [groupId, currentGroup, userGroups]);
+
+  const shouldSyncWithUrl = useMemo(() => {
+    return groupId && !currentGroup && !publicGroup && userGroups.length > 0 && !isCheckingPublicGroup;
+  }, [groupId, currentGroup, publicGroup, userGroups.length, isCheckingPublicGroup]);
 
   // Hook for manual feed updates - ALWAYS call hooks
   const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(currentGroup?.id);
@@ -102,54 +112,50 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
       return;
     }
 
-    // If we have a groupId but no currentGroup, check if it's a public group
-    if (groupId && !currentGroup && userGroups.length > 0) {
-      const userGroup = userGroups.find(g => g.id === groupId);
-      
-      // If the group is not in user's groups, check if it's public
-      if (!userGroup) {
-        setIsCheckingPublicGroup(true);
-        getPublicGroup(groupId)
-          .then((pubGroup) => {
-            if (pubGroup) {
-              console.log('📊 GroupDashboard: Found public group, showing public view:', pubGroup.name);
-              setPublicGroup(pubGroup);
-            } else {
-              console.log('📊 GroupDashboard: Group not public or not found');
-              setPublicGroup(null);
-            }
-          })
-          .catch((error) => {
-            console.error('📊 GroupDashboard: Error checking public group:', error);
+    // Only check for public group if conditions are met
+    if (shouldCheckPublicGroup) {
+      console.log('🔍 GroupDashboard: Checking for public group:', groupId);
+      setIsCheckingPublicGroup(true);
+      getPublicGroup(groupId!)
+        .then((pubGroup) => {
+          if (pubGroup) {
+            console.log('📊 GroupDashboard: Found public group, showing public view:', pubGroup.name);
+            setPublicGroup(pubGroup);
+          } else {
+            console.log('📊 GroupDashboard: Group not public or not found');
             setPublicGroup(null);
-          })
-          .finally(() => {
-            setIsCheckingPublicGroup(false);
-          });
-      }
+          }
+        })
+        .catch((error) => {
+          console.error('📊 GroupDashboard: Error checking public group:', error);
+          setPublicGroup(null);
+        })
+        .finally(() => {
+          setIsCheckingPublicGroup(false);
+        });
     }
-  }, [groupId, currentGroup, userGroups, getPublicGroup]);
+  }, [shouldCheckPublicGroup, getPublicGroup, groupId, currentGroup]);
 
   // Sync with group context if we have a groupId prop but no currentGroup - AFTER all hooks
   useEffect(() => {
-    if (groupId && !currentGroup && !publicGroup && userGroups.length > 0) {
+    if (shouldSyncWithUrl) {
       console.log('🔄 GroupDashboard syncing with groupId prop:', groupId);
-      syncWithUrl(groupId);
+      syncWithUrl(groupId!);
     }
-  }, [groupId, currentGroup, publicGroup, userGroups, syncWithUrl]);
+  }, [shouldSyncWithUrl, syncWithUrl, groupId]);
 
-  // Handle manual update function - AFTER all hooks
-  const handleManualUpdate = async () => {
+  // Memoized handlers to prevent unnecessary re-renders
+  const handleManualUpdate = useCallback(async () => {
     const result = await updateAllFeeds();
     if (result.success) {
       // Invalidate queries to refresh the UI
       queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, currentGroup?.id] });
       queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, currentGroup?.id] });
     }
-  };
+  }, [updateAllFeeds, queryClient, user?.id, currentGroup?.id]);
 
   // All other handler functions go here...
-  const handleAddFeed = async (e: React.FormEvent) => {
+  const handleAddFeed = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!feedUrl || !integrationName) return;
 
@@ -165,15 +171,15 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [feedUrl, integrationName, integrationAlias, addFeedMutation]);
 
-  const handleEditFeed = (feed: Feed) => {
+  const handleEditFeed = useCallback((feed: Feed) => {
     setEditingFeed(feed.id);
     setEditName(feed.integrationName);
     setEditAlias(feed.integrationAlias || '');
-  };
+  }, []);
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = useCallback(async () => {
     if (!editingFeed || !editName) return;
 
     try {
@@ -185,34 +191,21 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
     } catch (error) {
       console.error('Failed to update feed:', error);
     }
-  };
+  }, [editingFeed, editName, editAlias, updateFeedMutation]);
 
-  const handleCancelEdit = () => {
+  const handleCancelEdit = useCallback(() => {
     setEditingFeed(null);
     setEditName('');
     setEditAlias('');
-  };
+  }, []);
 
-  const handleDeleteFeed = async (id: string) => {
+  const handleDeleteFeed = useCallback(async (id: string) => {
     try {
       await deleteFeedMutation.mutateAsync(id);
     } catch (error) {
       console.error('Failed to delete feed:', error);
     }
-  };
-
-  console.log('🏢 GroupDashboard render:', {
-    propGroupId: groupId,
-    currentGroupId: currentGroup?.id,
-    currentGroupName: currentGroup?.name,
-    publicGroupId: publicGroup?.id,
-    publicGroupName: publicGroup?.name,
-    userGroupsCount: userGroups.length,
-    userId: user?.id,
-    userRole: currentGroup?.role,
-    canManage: canManageIntegrations(currentGroup?.role || 'viewer'),
-    isCheckingPublicGroup
-  });
+  }, [deleteFeedMutation]);
 
   // NOW we can do conditional rendering AFTER all hooks are called
   
@@ -768,4 +761,6 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
       )}
     </div>
   );
-} 
+});
+
+GroupDashboard.displayName = 'GroupDashboard'; 
