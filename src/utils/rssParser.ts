@@ -2,7 +2,6 @@ import type { FeedItem, FeedError } from '../types/feed';
 import { sanitizeHtmlToText } from './textSanitizer';
 
 // For development, we'll use a CORS proxy service
-const isDevelopment = import.meta.env.DEV || true; // Force development mode temporarily
 const CORS_PROXY = 'https://corsproxy.io/?';
 
 async function parseRSSContent(xmlContent: string, url: string, integrationName: string, integrationAlias?: string): Promise<FeedItem[]> {

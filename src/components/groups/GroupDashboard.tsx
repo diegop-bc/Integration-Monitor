@@ -9,11 +9,7 @@ import { sanitizeAndTruncate } from '../../utils/textSanitizer';
 import { MemberManagement } from './MemberManagement';
 import type { Feed, FeedItem } from '../../types/feed';
 import { 
-  getGroupPermissions, 
-  getRoleDisplayName, 
   getRoleBadgeColor,
-  canManageRole,
-  getAssignableRoles,
   canManageIntegrations
 } from '../../utils/permissions';
 
