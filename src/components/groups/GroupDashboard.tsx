@@ -7,7 +7,9 @@ import { getFeeds, getAllFeedItems, addFeed, updateFeed, deleteFeed } from '../.
 import { useFeedUpdates, useManualFeedUpdate } from '../../hooks/useFeedUpdates';
 import { sanitizeAndTruncate } from '../../utils/textSanitizer';
 import { MemberManagement } from './MemberManagement';
+import { PublicGroupView } from './PublicGroupView';
 import type { Feed, FeedItem } from '../../types/feed';
+import type { PublicGroup } from '../../types/group';
 import { 
   getRoleBadgeColor,
   canManageIntegrations
@@ -18,7 +20,7 @@ interface GroupDashboardProps {
 }
 
 export function GroupDashboard({ groupId }: GroupDashboardProps) {
-  const { currentGroup, userGroups, syncWithUrl } = useGroup();
+  const { currentGroup, userGroups, syncWithUrl, getPublicGroup } = useGroup();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   
@@ -32,36 +34,28 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
   const [editName, setEditName] = useState('');
   const [editAlias, setEditAlias] = useState('');
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null);
+  const [publicGroup, setPublicGroup] = useState<PublicGroup | null>(null);
+  const [isCheckingPublicGroup, setIsCheckingPublicGroup] = useState(false);
 
-  // Hook for manual feed updates
+  // Hook for manual feed updates - ALWAYS call hooks
   const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(currentGroup?.id);
 
   // Fetch feeds for the current group - ALWAYS call hooks
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
     queryKey: ['feeds', user?.id, currentGroup?.id],
     queryFn: () => getFeeds(currentGroup!.id),
-    enabled: !!user && !!currentGroup,
+    enabled: !!user && !!currentGroup && !publicGroup,
   });
 
   // Fetch recent feed items for the current group - ALWAYS call hooks
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
     queryKey: ['allFeedItems', user?.id, currentGroup?.id],
     queryFn: () => getAllFeedItems(currentGroup!.id),
-    enabled: !!user && !!currentGroup,
+    enabled: !!user && !!currentGroup && !publicGroup,
   });
 
   // Listen for feed updates - ALWAYS call hooks
   useFeedUpdates();
-
-  // Handle manual update
-  const handleManualUpdate = async () => {
-    const result = await updateAllFeeds();
-    if (result.success) {
-      // Invalidate queries to refresh the UI
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, currentGroup?.id] });
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, currentGroup?.id] });
-    }
-  };
 
   // Add feed mutation - ALWAYS call hooks
   const addFeedMutation = useMutation({
@@ -100,23 +94,141 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
     },
   });
 
+  // Check if this is a public group that should be displayed in public view - AFTER all hooks
+  useEffect(() => {
+    // If we have a currentGroup from context, it means the user is a member - use normal view
+    if (currentGroup) {
+      setPublicGroup(null);
+      return;
+    }
+
+    // If we have a groupId but no currentGroup, check if it's a public group
+    if (groupId && !currentGroup && userGroups.length > 0) {
+      const userGroup = userGroups.find(g => g.id === groupId);
+      
+      // If the group is not in user's groups, check if it's public
+      if (!userGroup) {
+        setIsCheckingPublicGroup(true);
+        getPublicGroup(groupId)
+          .then((pubGroup) => {
+            if (pubGroup) {
+              console.log('📊 GroupDashboard: Found public group, showing public view:', pubGroup.name);
+              setPublicGroup(pubGroup);
+            } else {
+              console.log('📊 GroupDashboard: Group not public or not found');
+              setPublicGroup(null);
+            }
+          })
+          .catch((error) => {
+            console.error('📊 GroupDashboard: Error checking public group:', error);
+            setPublicGroup(null);
+          })
+          .finally(() => {
+            setIsCheckingPublicGroup(false);
+          });
+      }
+    }
+  }, [groupId, currentGroup, userGroups, getPublicGroup]);
+
+  // Sync with group context if we have a groupId prop but no currentGroup - AFTER all hooks
+  useEffect(() => {
+    if (groupId && !currentGroup && !publicGroup && userGroups.length > 0) {
+      console.log('🔄 GroupDashboard syncing with groupId prop:', groupId);
+      syncWithUrl(groupId);
+    }
+  }, [groupId, currentGroup, publicGroup, userGroups, syncWithUrl]);
+
+  // Handle manual update function - AFTER all hooks
+  const handleManualUpdate = async () => {
+    const result = await updateAllFeeds();
+    if (result.success) {
+      // Invalidate queries to refresh the UI
+      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, currentGroup?.id] });
+      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, currentGroup?.id] });
+    }
+  };
+
+  // All other handler functions go here...
+  const handleAddFeed = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedUrl || !integrationName) return;
+
+    setIsSubmitting(true);
+    try {
+      await addFeedMutation.mutateAsync({
+        url: feedUrl,
+        name: integrationName,
+        alias: integrationAlias || undefined,
+      });
+    } catch (error) {
+      console.error('Failed to add feed:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEditFeed = (feed: Feed) => {
+    setEditingFeed(feed.id);
+    setEditName(feed.integrationName);
+    setEditAlias(feed.integrationAlias || '');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingFeed || !editName) return;
+
+    try {
+      await updateFeedMutation.mutateAsync({
+        id: editingFeed,
+        name: editName,
+        alias: editAlias || undefined,
+      });
+    } catch (error) {
+      console.error('Failed to update feed:', error);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingFeed(null);
+    setEditName('');
+    setEditAlias('');
+  };
+
+  const handleDeleteFeed = async (id: string) => {
+    try {
+      await deleteFeedMutation.mutateAsync(id);
+    } catch (error) {
+      console.error('Failed to delete feed:', error);
+    }
+  };
+
   console.log('🏢 GroupDashboard render:', {
     propGroupId: groupId,
     currentGroupId: currentGroup?.id,
     currentGroupName: currentGroup?.name,
+    publicGroupId: publicGroup?.id,
+    publicGroupName: publicGroup?.name,
     userGroupsCount: userGroups.length,
     userId: user?.id,
     userRole: currentGroup?.role,
-    canManage: canManageIntegrations(currentGroup?.role || 'viewer')
+    canManage: canManageIntegrations(currentGroup?.role || 'viewer'),
+    isCheckingPublicGroup
   });
 
-  // Sync with group context if we have a groupId prop but no currentGroup - AFTER all hooks
-  useEffect(() => {
-    if (groupId && !currentGroup && userGroups.length > 0) {
-      console.log('🔄 GroupDashboard syncing with groupId prop:', groupId);
-      syncWithUrl(groupId);
-    }
-  }, [groupId, currentGroup, userGroups, syncWithUrl]);
+  // NOW we can do conditional rendering AFTER all hooks are called
+  
+  // Show public group view if we have a public group
+  if (publicGroup) {
+    return <PublicGroupView group={publicGroup} />;
+  }
+
+  // Show loading state while checking for public group
+  if (isCheckingPublicGroup) {
+    return (
+      <div className="min-h-screen gradient-bg flex items-center justify-center">
+        <div className="text-white text-lg">Loading group...</div>
+      </div>
+    );
+  }
 
   // Early return if we don't have required data yet
   if (!currentGroup) {
@@ -174,58 +286,6 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
     if (diffInDays < 7) return `${diffInDays}d ago`;
     
     return new Date(dateString).toLocaleDateString();
-  };
-
-  const handleAddFeed = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!feedUrl || !integrationName) return;
-
-    setIsSubmitting(true);
-    try {
-      await addFeedMutation.mutateAsync({
-        url: feedUrl,
-        name: integrationName,
-        alias: integrationAlias || undefined,
-      });
-    } catch (error) {
-      console.error('Failed to add feed:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleEditFeed = (feed: Feed) => {
-    setEditingFeed(feed.id);
-    setEditName(feed.integrationName);
-    setEditAlias(feed.integrationAlias || '');
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingFeed || !editName) return;
-
-    try {
-      await updateFeedMutation.mutateAsync({
-        id: editingFeed,
-        name: editName,
-        alias: editAlias || undefined,
-      });
-    } catch (error) {
-      console.error('Failed to update feed:', error);
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setEditingFeed(null);
-    setEditName('');
-    setEditAlias('');
-  };
-
-  const handleDeleteFeed = async (id: string) => {
-    try {
-      await deleteFeedMutation.mutateAsync(id);
-    } catch (error) {
-      console.error('Failed to delete feed:', error);
-    }
   };
 
   return (
@@ -680,7 +740,10 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
 
       {/* Delete Confirmation Modal */}
       {deletingFeed && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)' }}
+        >
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Integration</h3>
             <p className="text-gray-600 mb-6">

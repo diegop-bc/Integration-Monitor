@@ -1,135 +1,146 @@
 import { supabase } from '../lib/supabase';
-import type { UserGroup, GroupWithMembership, CreateGroupRequest, UpdateGroupRequest } from '../types/group';
+import type { 
+  UserGroup, 
+  GroupWithMembership, 
+  CreateGroupRequest, 
+  UpdateGroupRequest,
+  PublicGroup,
+  PublicGroupFeedsResponse,
+  JoinGroupResponse,
+  ToggleVisibilityResponse,
+  AccessibleGroupsResponse
+} from '../types/group';
 
 export class GroupService {
   /**
-   * Get all groups for the current user (including groups where they're members)
+   * Get all groups for the current user using RPC function
+   * Uses the new get_user_member_groups RPC to get only groups where user is a member
    */
   async getUserGroups(): Promise<GroupWithMembership[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // First, get groups the user owns
-    const { data: ownedGroups, error: ownedError } = await supabase
-      .from('user_groups')
-      .select('*')
-      .eq('owner_id', user.id);
+    // Use RPC function to get only groups where user is a member
+    const { data: groupsData, error } = await supabase
+      .rpc('get_user_member_groups');
 
-    if (ownedError) throw ownedError;
+    if (error) throw error;
 
-    // Then, get groups the user is a member of
-    const { data: memberships, error: membershipError } = await supabase
-      .from('user_group_members')
-      .select('*')
-      .eq('user_id', user.id);
+    // Transform data to match our interface
+    const groupsWithMembership: GroupWithMembership[] = (groupsData || []).map((group: AccessibleGroupsResponse) => ({
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      owner_id: group.owner_id,
+      created_at: group.created_at,
+      updated_at: group.updated_at,
+      is_public: group.is_public,
+      role: group.user_role as 'owner' | 'admin' | 'member' | 'viewer',
+      member_count: Number(group.member_count),
+      integration_count: 0, // Will be calculated separately if needed
+      is_owner: group.is_owner,
+      can_access: true // If it's returned by RPC, user can access it
+    }));
 
-    if (membershipError) throw membershipError;
-
-    // Get groups where user is a member (not owner)
-    const memberGroupIds = memberships
-      .map(m => m.group_id)
-      .filter(groupId => !ownedGroups.some(og => og.id === groupId));
-
-    let memberGroups: any[] = [];
-    if (memberGroupIds.length > 0) {
-      const { data, error } = await supabase
-        .from('user_groups')
-        .select('*')
-        .in('id', memberGroupIds);
-
-      if (error) throw error;
-      memberGroups = data || [];
+    // Get integration counts for each group
+    for (const group of groupsWithMembership) {
+      const { count } = await supabase
+        .from('feeds')
+        .select('*', { count: 'exact' })
+        .eq('group_id', group.id);
+      
+      group.integration_count = count || 0;
     }
-
-    // Combine owned and member groups
-    const allGroups = [...ownedGroups, ...memberGroups];
-
-    // Transform the data and add computed fields
-    const groupsWithMembership: GroupWithMembership[] = await Promise.all(
-      allGroups.map(async (group: any) => {
-        // Find user's role in this group
-        const membership = memberships.find(m => m.group_id === group.id);
-        const role = group.owner_id === user.id ? 'owner' : (membership?.role || 'member');
-
-        // Get member count
-        const { count: memberCount } = await supabase
-          .from('user_group_members')
-          .select('*', { count: 'exact' })
-          .eq('group_id', group.id);
-
-        // Get integration count (feeds associated with this group)
-        const { count: integrationCount } = await supabase
-          .from('feeds')
-          .select('*', { count: 'exact' })
-          .eq('group_id', group.id);
-
-        return {
-          id: group.id,
-          name: group.name,
-          description: group.description,
-          owner_id: group.owner_id,
-          created_at: group.created_at,
-          updated_at: group.updated_at,
-          role: role,
-          member_count: (memberCount || 0) + 1, // +1 for the owner
-          integration_count: integrationCount || 0
-        };
-      })
-    );
 
     return groupsWithMembership;
   }
 
   /**
-   * Get a specific group by ID (if user has access)
+   * Get user's owned groups using RPC function
+   */
+  async getUserOwnedGroups(): Promise<GroupWithMembership[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    // Use RPC function to get owned groups
+    const { data: groupsData, error } = await supabase
+      .rpc('get_user_owned_groups');
+
+    if (error) throw error;
+
+    // Transform data to match our interface
+    const groupsWithMembership: GroupWithMembership[] = (groupsData || []).map((group: any) => ({
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      owner_id: group.owner_id,
+      created_at: group.created_at,
+      updated_at: group.updated_at,
+      is_public: group.is_public,
+      role: 'owner' as const,
+      member_count: Number(group.member_count) + 1, // +1 for owner
+      integration_count: 0, // Will be calculated separately if needed
+      is_owner: true,
+      can_access: true
+    }));
+
+    // Get integration counts for each group
+    for (const group of groupsWithMembership) {
+      const { count } = await supabase
+        .from('feeds')
+        .select('*', { count: 'exact' })
+        .eq('group_id', group.id);
+      
+      group.integration_count = count || 0;
+    }
+
+    return groupsWithMembership;
+  }
+
+  /**
+   * Get a specific group by ID using RPC function
+   * Handles both member groups and public groups
    */
   async getGroup(groupId: string): Promise<GroupWithMembership | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Get the group
-    const { data: group, error: groupError } = await supabase
-      .from('user_groups')
-      .select('*')
-      .eq('id', groupId)
-      .single();
+    // Use RPC function to get group with user role
+    const { data: groupData, error } = await supabase
+      .rpc('get_group_with_user_role', { group_uuid: groupId });
 
-    if (groupError) {
-      if (groupError.code === 'PGRST116') return null; // No rows returned
-      throw groupError;
+    if (error) throw error;
+
+    if (!groupData || groupData.length === 0) {
+      // If group not found via member function, try public group access
+      const publicGroup = await this.getPublicGroup(groupId);
+      if (publicGroup) {
+        // Convert PublicGroup to GroupWithMembership format
+        return {
+          id: publicGroup.id,
+          name: publicGroup.name,
+          description: publicGroup.description,
+          owner_id: '', // Hidden for public groups
+          created_at: publicGroup.created_at,
+          updated_at: publicGroup.updated_at,
+          is_public: publicGroup.is_public,
+          role: publicGroup.user_role as 'viewer', // Public group viewers
+          member_count: publicGroup.member_count,
+          integration_count: publicGroup.feed_count,
+          is_owner: false,
+          can_access: true
+        };
+      }
+      return null;
     }
 
-    // Check if user has access (owner or member)
-    const isOwner = group.owner_id === user.id;
-    let membership = null;
+    const group = groupData[0];
 
-    if (!isOwner) {
-      const { data: membershipData, error: membershipError } = await supabase
-        .from('user_group_members')
-        .select('*')
-        .eq('group_id', groupId)
-        .eq('user_id', user.id)
-        .single();
-
-      if (membershipError && membershipError.code !== 'PGRST116') {
-        throw membershipError;
-      }
-
-      membership = membershipData;
-      
-      // If user is not owner and not a member, they don't have access
-      if (!membership) {
-        return null;
-      }
-    }
-
-    // Get additional counts
-    const [memberCountResult, integrationCountResult] = await Promise.all([
-      supabase.from('user_group_members').select('*', { count: 'exact' }).eq('group_id', groupId),
-      supabase.from('feeds').select('*', { count: 'exact' }).eq('group_id', groupId)
-    ]);
-
-    const role = isOwner ? 'owner' : (membership?.role || 'member');
+    // Get integration count
+    const { count: integrationCount } = await supabase
+      .from('feeds')
+      .select('*', { count: 'exact' })
+      .eq('group_id', groupId);
 
     return {
       id: group.id,
@@ -138,10 +149,139 @@ export class GroupService {
       owner_id: group.owner_id,
       created_at: group.created_at,
       updated_at: group.updated_at,
-      role: role,
-      member_count: (memberCountResult.count || 0) + 1, // +1 for the owner
-      integration_count: integrationCountResult.count || 0
+      is_public: group.is_public,
+      role: group.user_role as 'owner' | 'admin' | 'member' | 'viewer',
+      member_count: Number(group.member_count),
+      integration_count: integrationCount || 0,
+      is_owner: group.is_owner,
+      can_access: group.can_access
     };
+  }
+
+  /**
+   * Get public group information (for non-members)
+   */
+  async getPublicGroup(groupId: string): Promise<PublicGroup | null> {
+    try {
+      // Use RPC function to get public group stats
+      const { data: statsData, error: statsError } = await supabase
+        .rpc('get_public_group_stats', { group_uuid: groupId });
+
+      if (statsError) {
+        // If error is because group is not public, return null
+        if (statsError.message?.includes('not public')) {
+          return null;
+        }
+        throw statsError;
+      }
+
+      if (!statsData || statsData.length === 0) {
+        return null;
+      }
+
+      const stats = statsData[0];
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Determine user's current role and if they can join
+      let userRole: 'none' | 'viewer' | 'member' | 'admin' | 'owner' = 'none';
+      let canJoin = false;
+
+      if (user) {
+        // Use RPC function to check group membership to avoid RLS issues
+        try {
+          const { data: groupWithRole } = await supabase
+            .rpc('get_group_with_user_role', { 
+              group_uuid: groupId 
+            });
+
+          if (groupWithRole && groupWithRole.length > 0) {
+            const groupInfo = groupWithRole[0];
+            userRole = groupInfo.user_role || 'none';
+            canJoin = userRole === 'none'; // Can join if not already a member
+          } else {
+            // User is not a member, can join
+            canJoin = true;
+          }
+        } catch (membershipError) {
+          // If we can't check membership (e.g., user not in group), assume they can join
+          canJoin = true;
+        }
+      } else {
+        // Not authenticated, can't join but can view
+        canJoin = false;
+      }
+
+      return {
+        id: stats.id,
+        name: stats.name,
+        description: stats.description,
+        created_at: stats.created_at,
+        updated_at: stats.created_at, // Using created_at as fallback
+        is_public: true,
+        member_count: Number(stats.member_count),
+        feed_count: Number(stats.feed_count),
+        total_feed_items: Number(stats.total_feed_items),
+        last_activity: stats.last_activity,
+        user_role: userRole,
+        can_join: canJoin
+      };
+    } catch (error) {
+      console.error('Error getting public group:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get public group feeds
+   */
+  async getPublicGroupFeeds(groupId: string): Promise<PublicGroupFeedsResponse[]> {
+    const { data: feedsData, error } = await supabase
+      .rpc('get_public_group_feeds', { group_uuid: groupId });
+
+    if (error) throw error;
+
+    return feedsData || [];
+  }
+
+  /**
+   * Join a public group
+   */
+  async joinPublicGroup(groupId: string): Promise<JoinGroupResponse> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const { data: result, error } = await supabase
+      .rpc('join_public_group', { group_uuid: groupId });
+
+    if (error) throw error;
+
+    if (!result || result.length === 0) {
+      return { success: false, message: 'Failed to join group' };
+    }
+
+    return result[0];
+  }
+
+  /**
+   * Toggle group visibility (public/private)
+   */
+  async toggleGroupVisibility(groupId: string, isPublic: boolean): Promise<ToggleVisibilityResponse> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const { data: result, error } = await supabase
+      .rpc('toggle_group_visibility', { 
+        group_uuid: groupId, 
+        make_public: isPublic 
+      });
+
+    if (error) throw error;
+
+    if (!result || result.length === 0) {
+      return { success: false, message: 'Failed to update group visibility' };
+    }
+
+    return result[0];
   }
 
   /**
@@ -157,7 +297,8 @@ export class GroupService {
       .insert({
         name: groupData.name,
         description: groupData.description,
-        owner_id: user.id
+        owner_id: user.id,
+        is_public: groupData.is_public || false // Default to private
       })
       .select()
       .single();
@@ -219,6 +360,11 @@ export class GroupService {
       throw new Error('Insufficient permissions to update this group');
     }
 
+    // Only owners can change visibility
+    if (updateData.is_public !== undefined && !isOwner) {
+      throw new Error('Only group owners can change group visibility');
+    }
+
     const { data, error } = await supabase
       .from('user_groups')
       .update(updateData)
@@ -277,6 +423,18 @@ export class GroupService {
     
     if (error) throw error;
     return data.length === 0;
+  }
+
+  /**
+   * Check if a group is public
+   */
+  async isGroupPublic(groupId: string): Promise<boolean> {
+    const { data: result, error } = await supabase
+      .rpc('is_group_public', { group_uuid: groupId });
+
+    if (error) throw error;
+
+    return result || false;
   }
 }
 

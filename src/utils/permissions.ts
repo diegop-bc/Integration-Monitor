@@ -13,6 +13,7 @@ export function getGroupPermissions(userRole: GroupRole): GroupPermissions {
         canEditGroup: true,
         canDeleteGroup: true,
         canRemoveMembers: true,
+        canToggleVisibility: true,
       };
     
     case 'admin':
@@ -23,6 +24,7 @@ export function getGroupPermissions(userRole: GroupRole): GroupPermissions {
         canEditGroup: true,
         canDeleteGroup: false,
         canRemoveMembers: true,
+        canToggleVisibility: false,
       };
     
     case 'member':
@@ -33,6 +35,7 @@ export function getGroupPermissions(userRole: GroupRole): GroupPermissions {
         canEditGroup: false,
         canDeleteGroup: false,
         canRemoveMembers: false,
+        canToggleVisibility: false,
       };
     
     case 'viewer':
@@ -43,6 +46,7 @@ export function getGroupPermissions(userRole: GroupRole): GroupPermissions {
         canEditGroup: false,
         canDeleteGroup: false,
         canRemoveMembers: false,
+        canToggleVisibility: false,
       };
     
     default:
@@ -54,6 +58,7 @@ export function getGroupPermissions(userRole: GroupRole): GroupPermissions {
         canEditGroup: false,
         canDeleteGroup: false,
         canRemoveMembers: false,
+        canToggleVisibility: false,
       };
   }
 }
@@ -151,4 +156,12 @@ export function canManageIntegrations(role: GroupRole): boolean {
  */
 export function isReadOnlyRole(role: GroupRole): boolean {
   return role === 'viewer';
+}
+
+/**
+ * Check if user can toggle group visibility (public/private)
+ * Only owners can change group visibility
+ */
+export function canToggleGroupVisibility(role: GroupRole): boolean {
+  return role === 'owner';
 } 

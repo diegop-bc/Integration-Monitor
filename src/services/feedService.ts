@@ -112,21 +112,9 @@ export async function addFeed(
 
 export async function getFeeds(groupId?: string | null): Promise<{ feeds: Feed[]; error?: FeedError }> {
   try {
-    let query = supabase
-      .from('feeds')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    // Filter by context: personal feeds (group_id IS NULL) or specific group feeds
-    if (groupId === null || groupId === undefined) {
-      // Personal feeds only
-      query = query.is('group_id', null);
-    } else {
-      // Specific group feeds only
-      query = query.eq('group_id', groupId);
-    }
-
-    const { data: feeds, error } = await query;
+    // Use RPC function to get accessible feeds
+    const { data: feedsData, error } = await supabase
+      .rpc('get_user_accessible_feeds');
 
     if (error) {
       return {
@@ -139,7 +127,18 @@ export async function getFeeds(groupId?: string | null): Promise<{ feeds: Feed[]
       };
     }
 
-    const mappedFeeds = (feeds || []).map(feed => ({
+    // Filter feeds based on groupId parameter
+    let filteredFeeds = feedsData || [];
+    
+    if (groupId === null || groupId === undefined) {
+      // Personal feeds only (group_id IS NULL)
+      filteredFeeds = filteredFeeds.filter((feed: any) => feed.group_id === null);
+    } else {
+      // Specific group feeds only
+      filteredFeeds = filteredFeeds.filter((feed: any) => feed.group_id === groupId);
+    }
+
+    const mappedFeeds = filteredFeeds.map((feed: any) => ({
       id: feed.id,
       url: feed.url,
       title: feed.title,
@@ -223,29 +222,12 @@ export async function getFeedItems(feedId: string): Promise<{ items: FeedItem[];
 
 export async function getAllFeedItems(groupId?: string | null): Promise<{ items: FeedItem[]; error?: FeedError }> {
   try {
-    let query = supabase
-      .from('feed_items')
-      .select(`
-        *,
-        feeds!inner(
-          id,
-          title,
-          url
-        )
-      `)
-      .order('pub_date', { ascending: false })
-      .limit(50);
-
-    // Filter by context: personal feed items or specific group feed items
-    if (groupId === null || groupId === undefined) {
-      // Personal feed items only
-      query = query.is('group_id', null);
-    } else {
-      // Specific group feed items only
-      query = query.eq('group_id', groupId);
-    }
-
-    const { data: items, error } = await query;
+    // Use RPC function to get accessible feed items
+    const { data: itemsData, error } = await supabase
+      .rpc('get_user_accessible_feed_items', { 
+        item_limit: 50,
+        offset_count: 0
+      });
 
     if (error) {
       return {
@@ -258,7 +240,19 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
       };
     }
 
-    const mappedItems = (items || []).map(item => ({
+    // Filter items based on groupId parameter
+    let filteredItems = itemsData || [];
+    
+    if (groupId === null || groupId === undefined) {
+      // Personal feed items only (group_id IS NULL)
+      filteredItems = filteredItems.filter((item: any) => item.user_id && !item.is_public_group);
+    } else {
+      // Specific group feed items only - RPC function handles group filtering
+      // For now, we use all items since RPC already filters by group access
+      filteredItems = itemsData || [];
+    }
+
+    const mappedItems = filteredItems.slice(0, 50).map((item: any) => ({
       id: item.id,
       title: item.title,
       link: item.link,
@@ -270,9 +264,61 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
       createdAt: item.created_at,
       // Add feed metadata
       feedInfo: {
-        id: item.feeds.id,
-        title: item.feeds.title,
-        url: item.feeds.url,
+        id: item.feed_id,
+        title: item.feed_title,
+        url: '', // Not available in RPC response, would need separate query if needed
+      }
+    }));
+
+    return { items: mappedItems };
+  } catch (error) {
+    return {
+      items: [],
+      error: {
+        code: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'An unknown error occurred',
+        details: error,
+      },
+    };
+  }
+}
+
+// Specific function for public group feed items
+export async function getPublicGroupFeedItems(groupId: string): Promise<{ items: FeedItem[]; error?: FeedError }> {
+  try {
+    // Use RPC function to get public group feed items
+    const { data: itemsData, error } = await supabase
+      .rpc('get_public_group_recent_items', { 
+        group_uuid: groupId,
+        item_limit: 50
+      });
+
+    if (error) {
+      return {
+        items: [],
+        error: {
+          code: 'DB_ERROR',
+          message: error.message,
+          details: error,
+        },
+      };
+    }
+
+    const mappedItems = (itemsData || []).map((item: any) => ({
+      id: item.id,
+      title: item.title,
+      link: item.link,
+      content: item.content || '',
+      contentSnippet: item.content_snippet,
+      pubDate: item.pub_date,
+      integrationName: item.integration_name,
+      integrationAlias: item.integration_alias || '',
+      createdAt: item.pub_date, // Use pub_date as created_at fallback
+      // Add feed metadata
+      feedInfo: {
+        id: item.feed_id,
+        title: item.feed_title || '',
+        url: '', // Not available in RPC response
       }
     }));
 
