@@ -26,84 +26,72 @@ serve(async (req) => {
 
     // Create email content
     const emailContent = {
-      from: 'Integration Monitor <no-reply@postman.integrations.me>',
+      from: 'integrations.me <no-reply@postman.integrations.me>',
       to: [email],
-      subject: `You're invited to join ${groupName}`,
+      subject: `You're invited to join ${groupName} on integrations.me`,
       html: `
         <!DOCTYPE html>
         <html>
           <head>
-            <meta charset="utf-8">
-            <title>You're invited to join ${groupName}</title>
             <style>
-              body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f9fafb; }
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
               .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .card { background: white; border-radius: 8px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
-              .header { text-align: center; margin-bottom: 32px; }
-              .logo { width: 48px; height: 48px; background: #3b82f6; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 20px; margin-bottom: 16px; }
-              .title { font-size: 24px; font-weight: bold; color: #111827; margin: 0; }
-              .subtitle { color: #6b7280; margin: 8px 0 0 0; }
-              .content { margin-bottom: 32px; }
-              .content p { color: #374151; line-height: 1.6; margin: 16px 0; }
-              .button { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; }
-              .button:hover { background: #2563eb; }
-              .footer { border-top: 1px solid #e5e7eb; padding-top: 24px; color: #6b7280; font-size: 14px; }
-              .role-badge { display: inline-block; background: #dbeafe; color: #1e40af; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 500; }
+              .header { background: linear-gradient(135deg, #3B82F6, #8B5CF6); color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+              .button { display: inline-block; background: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+              .role-badge { background: #E5E7EB; color: #374151; padding: 2px 8px; border-radius: 12px; font-size: 0.875rem; }
             </style>
           </head>
           <body>
             <div class="container">
-              <div class="card">
-                <div class="header">
-                  <div class="logo">IM</div>
-                  <h1 class="title">You're invited to join the team!</h1>
-                  <p class="subtitle">Join <strong>${groupName}</strong> and start collaborating</p>
+              <div class="header">
+                <h1 style="margin: 0; font-size: 1.5rem;">integrations.me</h1>
+                <p style="margin: 5px 0 0 0; opacity: 0.9;">RSS Changelog Monitoring</p>
+              </div>
+              <div class="content">
+                <h2>You're invited to join a team!</h2>
+                
+                <p><strong>${inviterName}</strong> has invited you to join <strong>${groupName}</strong> on integrations.me as a <span class="role-badge">${role.charAt(0).toUpperCase() + role.slice(1)}</span>.</p>
+                <p>integrations.me helps teams track and monitor updates from their favorite tools and services in one centralized dashboard.</p>
+                
+                <p><strong>What you'll get access to:</strong></p>
+                <ul>
+                  <li>📊 Unified dashboard for all your integrations</li>
+                  <li>🔔 Real-time notifications for updates</li>
+                  <li>📈 Timeline view of all changes</li>
+                  <li>👥 Collaborate with your team</li>
+                </ul>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${invitationUrl}" class="button">Accept Invitation</a>
                 </div>
                 
-                <div class="content">
-                  <p>Hi there! 👋</p>
-                  <p><strong>${inviterName}</strong> has invited you to join <strong>${groupName}</strong> on Integration Monitor as a <span class="role-badge">${role.charAt(0).toUpperCase() + role.slice(1)}</span>.</p>
-                  <p>Integration Monitor helps teams track and monitor updates from their favorite tools and services in one centralized dashboard.</p>
-                  <p>Click the button below to accept your invitation and create your account:</p>
-                  
-                  <div style="text-align: center; margin: 32px 0;">
-                    <a href="${invitationUrl}" class="button">Accept Invitation & Join Team</a>
-                  </div>
-                  
-                  <p><strong>What you'll be able to do:</strong></p>
-                  <ul style="color: #374151; line-height: 1.6;">
-                    ${role === 'admin' ? '<li>Manage team members and group settings</li>' : ''}
-                    ${role === 'admin' || role === 'member' ? '<li>Add and manage integrations</li>' : ''}
-                    <li>View all integration updates in real-time</li>
-                    <li>Get notified about important changes</li>
-                    ${role === 'viewer' ? '<li>Read-only access to all group content</li>' : ''}
-                  </ul>
-                </div>
+                <p style="font-size: 0.875rem; color: #6B7280;">
+                  If you're having trouble clicking the button, copy and paste this URL into your browser:<br>
+                  <a href="${invitationUrl}" style="color: #3B82F6; word-break: break-all;">${invitationUrl}</a>
+                </p>
                 
-                <div class="footer">
-                  <p>This invitation will expire in 7 days. If you have any questions, please contact ${inviterName}.</p>
-                  <p>If you can't click the button above, copy and paste this link into your browser:<br>
-                     <a href="${invitationUrl}" style="color: #3b82f6;">${invitationUrl}</a>
-                  </p>
-                </div>
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #E5E7EB;">
+                
+                <p style="font-size: 0.875rem; color: #6B7280; margin: 0;">
+                  This invitation was sent by ${inviterName} (${Deno.env.get('FRONTEND_URL') || 'http://localhost:5173'}). 
+                  If you weren't expecting this invitation, you can safely ignore this email.
+                </p>
               </div>
             </div>
           </body>
         </html>
       `,
       text: `
-You're invited to join ${groupName}!
+You're invited to join ${groupName} on integrations.me!
 
-${inviterName} has invited you to join ${groupName} on Integration Monitor as a ${role}.
+${inviterName} has invited you to join ${groupName} on integrations.me as a ${role}.
 
-Integration Monitor helps teams track and monitor updates from their favorite tools and services in one centralized dashboard.
+integrations.me helps teams track and monitor updates from their favorite tools and services in one centralized dashboard.
 
-To accept your invitation and create your account, visit:
-${invitationUrl}
+Accept your invitation: ${invitationUrl}
 
-This invitation will expire in 7 days.
-
-If you have any questions, please contact ${inviterName}.
+If you weren't expecting this invitation, you can safely ignore this email.
       `.trim()
     }
 

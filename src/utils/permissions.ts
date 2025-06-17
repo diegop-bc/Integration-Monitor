@@ -135,4 +135,20 @@ export function getAssignableRoles(managerRole: GroupRole): GroupRole[] {
     default:
       return [];
   }
+}
+
+/**
+ * Check if user can manage integrations (create, edit, delete)
+ * Only viewers cannot manage integrations
+ */
+export function canManageIntegrations(role: GroupRole): boolean {
+  return role === 'owner' || role === 'admin' || role === 'member';
+}
+
+/**
+ * Check if user can only view integrations
+ * Only viewers have read-only access
+ */
+export function isReadOnlyRole(role: GroupRole): boolean {
+  return role === 'viewer';
 } 

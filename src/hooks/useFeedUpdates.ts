@@ -84,7 +84,7 @@ export function useManualFeedUpdate(groupId?: string | null) {
     } catch (error) {
       const errorResult = {
         success: false,
-        message: error instanceof Error ? error.message : 'Error desconocido',
+        message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date(),
       };
       setLastUpdate(errorResult);
@@ -129,7 +129,7 @@ export function useFeedStats() {
     } catch (err) {
       setError({
         code: 'UNKNOWN_ERROR',
-        message: err instanceof Error ? err.message : 'Error obteniendo estadísticas',
+        message: err instanceof Error ? err.message : 'Error obtaining statistics',
       });
     } finally {
       setIsLoading(false);

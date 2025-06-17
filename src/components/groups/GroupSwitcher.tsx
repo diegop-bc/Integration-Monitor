@@ -23,8 +23,14 @@ export function GroupSwitcher() {
   }, []);
 
   const handleGroupSelect = async (groupId: string | null) => {
+    console.log('🎯 GroupSwitcher: handleGroupSelect called with:', { 
+      groupId, 
+      currentGroupId: currentGroup?.id,
+      currentGroupName: currentGroup?.name 
+    });
     setIsOpen(false);
     await switchToGroup(groupId);
+    console.log('✅ GroupSwitcher: switchToGroup completed');
   };
 
   const handleCreateGroup = () => {

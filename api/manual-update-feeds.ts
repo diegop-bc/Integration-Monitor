@@ -74,7 +74,7 @@ async function updateSingleFeed(feedId: string) {
     if (feedError || !feed) {
       return { 
         success: false, 
-        error: `Feed no encontrado: ${feedError?.message}`,
+        error: `Feed not found: ${feedError?.message}`,
         feedId 
       };
     }
@@ -156,7 +156,7 @@ async function updateSingleFeed(feedId: string) {
   } catch (error) {
     return { 
       success: false, 
-      error: error instanceof Error ? error.message : 'Error desconocido',
+      error: error instanceof Error ? error.message : 'Unknown error',
       feedId 
     };
   }
@@ -263,8 +263,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error('Error en actualización manual:', error);
     return res.status(500).json({
-      error: 'Error interno del servidor',
-      details: error instanceof Error ? error.message : 'Error desconocido'
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 } 

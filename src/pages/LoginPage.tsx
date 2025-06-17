@@ -46,7 +46,7 @@ export default function LoginPage() {
       if (user && invitationToken && user.email === invitationEmail) {
         try {
           await memberService.acceptInvitationExistingUser(invitationToken);
-          setMessage('¡Te has unido exitosamente al grupo!');
+          setMessage('You have successfully joined the group!');
           
           // Get the group ID from the invitation to redirect properly
           const invitation = await memberService.getInvitationByToken(invitationToken);
@@ -57,7 +57,7 @@ export default function LoginPage() {
             window.location.href = redirectUrl;
           }, 2000);
         } catch (err) {
-          setError(`Error al unirse al grupo: ${err instanceof Error ? err.message : 'Error desconocido'}`);
+          setError(`Error joining the group: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
       }
     };
@@ -158,7 +158,7 @@ export default function LoginPage() {
       >
         <div className="relative z-10 flex flex-col justify-center px-12 text-white" style={{ margin: "auto" }}>
           <h1 className="text-5xl font-bold mb-6 drop-shadow-lg">
-            Integration Monitor
+            integrations.me
           </h1>
           <p className="text-xl mb-8 text-gray-100 drop-shadow-md">
             Monitor your integrations via RSS Feed
@@ -203,7 +203,7 @@ export default function LoginPage() {
           {/* Mobile Hero */}
           <div className="lg:hidden text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2 drop-shadow-sm">
-              Integration Monitor
+              integrations.me
             </h1>
             <p className="text-gray-700 drop-shadow-sm">
               Monitor your integrations via RSS Feed
@@ -240,15 +240,15 @@ export default function LoginPage() {
               {invitationToken ? (
                 <>
                   <h2 className="text-2xl font-bold text-gray-900">
-                    Inicia Sesión para Unirte
+                    Sign in to Join
                   </h2>
                   <p className="text-gray-700 mt-2">
-                    Has sido invitado a unirte a un grupo. Inicia sesión para aceptar la invitación.
+                    You have been invited to join a group. Sign in to accept the invitation.
                   </p>
                   {invitationEmail && (
                     <div className="mt-3 p-3 bg-blue-50/90 backdrop-blur-sm border border-blue-200 rounded-lg">
                       <p className="text-blue-800 text-sm">
-                        <strong>Email de invitación:</strong> {invitationEmail}
+                        <strong>Invitation email:</strong> {invitationEmail}
                       </p>
                     </div>
                   )}

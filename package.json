@@ -1,19 +1,20 @@
 {
-  "name": "integration-monitor",
+  "name": "integrations-me",
   "private": true,
   "version": "1.0.0",
   "description": "Monitor your integrations via RSS Feed - Track updates across all your third-party services in one unified timeline",
   "type": "module",
   "keywords": [
-    "integration",
+    "integrations",
     "monitor",
     "rss",
     "feed",
     "changelog",
     "api",
-    "monitoring"
+    "monitoring",
+    "integrations.me"
   ],
-  "author": "Integration Monitor Team",
+  "author": "integrations.me Team",
   "license": "MIT",
   "scripts": {
     "dev": "vite",

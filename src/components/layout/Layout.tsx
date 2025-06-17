@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { useGroup } from '../../contexts/GroupContext'
 import { GroupSwitcher } from '../groups/GroupSwitcher'
 
 interface LayoutProps {
@@ -10,6 +11,7 @@ interface LayoutProps {
 const Layout = ({ children }: LayoutProps) => {
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const { currentGroup } = useGroup();
   
   const handleSignOut = async () => {
     try {
@@ -18,6 +20,19 @@ const Layout = ({ children }: LayoutProps) => {
       console.error('Error signing out:', error);
     }
   };
+
+  // Determine the correct paths based on current context
+  const dashboardPath = currentGroup ? `/group/${currentGroup.id}` : '/';
+  const updatesPath = currentGroup ? `/group/${currentGroup.id}/updates` : '/personal/updates';
+  
+  // Check if current path matches dashboard or updates
+  const isDashboardActive = currentGroup 
+    ? location.pathname === `/group/${currentGroup.id}` || location.pathname === `/group/${currentGroup.id}/`
+    : location.pathname === '/' || location.pathname === '/personal';
+    
+  const isUpdatesActive = currentGroup
+    ? location.pathname === `/group/${currentGroup.id}/updates`
+    : location.pathname === '/updates' || location.pathname === '/personal/updates';
   
   return (
     <div className="min-h-screen gradient-bg">
@@ -32,7 +47,7 @@ const Layout = ({ children }: LayoutProps) => {
               </div>
               <div>
                 <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Integration Monitor
+                  integrations.me
                 </h1>
                 <p className="text-sm text-gray-500 font-medium">RSS Changelog Tracker</p>
               </div>
@@ -46,9 +61,9 @@ const Layout = ({ children }: LayoutProps) => {
             <div className="flex items-center gap-6">
               <nav className="flex items-center gap-4">
                 <Link 
-                  to="/" 
+                  to={dashboardPath} 
                   className={`px-3 py-2 rounded-lg font-medium transition-all duration-200 ${
-                    location.pathname === '/' 
+                    isDashboardActive 
                       ? 'bg-blue-100 text-blue-700 shadow-md' 
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
@@ -56,9 +71,9 @@ const Layout = ({ children }: LayoutProps) => {
                   Dashboard
                 </Link>
                 <Link 
-                  to="/updates" 
+                  to={updatesPath} 
                   className={`px-3 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 ${
-                    location.pathname === '/updates' 
+                    isUpdatesActive 
                       ? 'bg-blue-100 text-blue-700 shadow-md' 
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}

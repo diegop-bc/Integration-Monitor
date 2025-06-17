@@ -34,7 +34,7 @@ export function AcceptInvitation() {
 
   useEffect(() => {
     if (!token) {
-      setError('Enlace de invitación inválido');
+      setError('Invalid invitation link');
       setIsLoading(false);
       return;
     }
@@ -44,9 +44,9 @@ export function AcceptInvitation() {
       try {
         const invitationData = await memberService.getInvitationByToken(token);
         if (!invitationData) {
-          setError('Invitación inválida o expirada');
+          setError('Invitation invalid or expired');
         } else if (invitationData.is_expired) {
-          setError('Esta invitación ha expirado. Por favor solicita una nueva invitación al propietario del grupo.');
+          setError('This invitation has expired. Please request a new invitation from the group owner.');
         } else {
           setInvitation(invitationData);
           setFormData(prev => ({ ...prev, email: invitationData.invited_email }));
@@ -55,7 +55,7 @@ export function AcceptInvitation() {
           if (user && user.email === invitationData.invited_email) {
             setIsExistingUser(true);
           } else if (user && user.email !== invitationData.invited_email) {
-            setError('Estás loggeado con una cuenta diferente. Por favor cierra sesión e intenta de nuevo con el email correcto.');
+            setError('You are logged in with a different account. Please log out and try again with the correct email.');
           } else {
             // Check if the invited email is already registered
             const emailExists = await checkEmailExists(invitationData.invited_email);
@@ -83,7 +83,7 @@ export function AcceptInvitation() {
       await memberService.acceptInvitationExistingUser(token!);
       navigate(`/group/${invitation.group_id}`, { 
         replace: true,
-        state: { message: `¡Te has unido exitosamente al grupo "${invitation.group_name}"!` }
+        state: { message: `You have successfully joined the group "${invitation.group_name}"!` }
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al aceptar la invitación');
@@ -148,13 +148,13 @@ export function AcceptInvitation() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Error en la Invitación</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Invitation Error</h3>
             <p className="text-sm text-gray-500 mb-6">{error}</p>
             <Link
               to="/login"
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
-              Ir al Login
+              Go to Login
             </Link>
           </div>
         </div>
@@ -177,19 +177,19 @@ export function AcceptInvitation() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Unirse al Equipo</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Join the Team</h2>
             <p className="text-gray-600 mb-6">
-              Has sido invitado a unirte al grupo <strong>{invitation.group_name}</strong> como {getRoleDisplayName(invitation.role)}.
+              You have been invited to join the group <strong>{invitation.group_name}</strong> as {getRoleDisplayName(invitation.role)}.
             </p>
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
               <p className="text-sm text-gray-700">
-                <strong>Grupo:</strong> {invitation.group_name}
+                <strong>Group:</strong> {invitation.group_name}
               </p>
               <p className="text-sm text-gray-700">
-                <strong>Rol:</strong> {getRoleDisplayName(invitation.role)}
+                <strong>Role:</strong> {getRoleDisplayName(invitation.role)}
               </p>
               <p className="text-sm text-gray-700">
-                <strong>Invitado por:</strong> {invitation.invited_by_name}
+                <strong>Invited by:</strong> {invitation.invited_by_name}
               </p>
             </div>
             <button
@@ -197,7 +197,7 @@ export function AcceptInvitation() {
               disabled={isSubmitting}
               className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
-              {isSubmitting ? 'Uniéndose...' : 'Unirse al Grupo'}
+              {isSubmitting ? 'Joining...' : 'Join Group'}
             </button>
           </div>
         </div>
@@ -216,27 +216,27 @@ export function AcceptInvitation() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Cuenta Encontrada!</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Account Found!</h2>
             <p className="text-gray-600 mb-6">
-              Ya tienes una cuenta con el email <strong>{invitation.invited_email}</strong>. 
-              Por favor inicia sesión para unirte al grupo <strong>{invitation.group_name}</strong>.
+              You already have an account with email <strong>{invitation.invited_email}</strong>. 
+              Please sign in to join the group <strong>{invitation.group_name}</strong>.
             </p>
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
               <p className="text-sm text-gray-700">
-                <strong>Grupo:</strong> {invitation.group_name}
+                <strong>Group:</strong> {invitation.group_name}
               </p>
               <p className="text-sm text-gray-700">
-                <strong>Rol:</strong> {getRoleDisplayName(invitation.role)}
+                <strong>Role:</strong> {getRoleDisplayName(invitation.role)}
               </p>
               <p className="text-sm text-gray-700">
-                <strong>Invitado por:</strong> {invitation.invited_by_name}
+                <strong>Invited by:</strong> {invitation.invited_by_name}
               </p>
             </div>
             <Link
               to={`/login?invitation=${token}&email=${encodeURIComponent(invitation.invited_email)}`}
               className="w-full inline-flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
-              Iniciar Sesión para Unirse
+              Sign in to Join
             </Link>
           </div>
         </div>
@@ -254,21 +254,21 @@ export function AcceptInvitation() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Crear Cuenta</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Create Account</h2>
           <p className="text-gray-600">
-            Crea tu cuenta para unirte al grupo <strong>{invitation.group_name}</strong> como {getRoleDisplayName(invitation.role)}.
+            Create your account to join the group <strong>{invitation.group_name}</strong> as {getRoleDisplayName(invitation.role)}.
           </p>
         </div>
 
         <div className="bg-gray-50 p-4 rounded-lg mb-6">
           <p className="text-sm text-gray-700">
-            <strong>Grupo:</strong> {invitation.group_name}
+            <strong>Group:</strong> {invitation.group_name}
           </p>
           <p className="text-sm text-gray-700">
-            <strong>Rol:</strong> {getRoleDisplayName(invitation.role)}
+            <strong>Role:</strong> {getRoleDisplayName(invitation.role)}
           </p>
           <p className="text-sm text-gray-700">
-            <strong>Invitado por:</strong> {invitation.invited_by_name}
+            <strong>Invited by:</strong> {invitation.invited_by_name}
           </p>
         </div>
 
@@ -288,7 +288,7 @@ export function AcceptInvitation() {
 
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-              Nombre Completo
+              Full Name
             </label>
             <input
               type="text"
@@ -302,7 +302,7 @@ export function AcceptInvitation() {
 
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-              Contraseña
+              Password
             </label>
             <input
               type="password"
@@ -320,18 +320,18 @@ export function AcceptInvitation() {
             disabled={isSubmitting}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            {isSubmitting ? 'Creando cuenta...' : 'Crear Cuenta y Unirse'}
+            {isSubmitting ? 'Creating account...' : 'Create Account and Join'}
           </button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">
-            ¿Ya tienes una cuenta?{' '}
+            Already have an account?{' '}
             <Link 
               to={`/login?invitation=${token}&email=${encodeURIComponent(formData.email)}`}
               className="font-medium text-blue-600 hover:text-blue-500"
             >
-              Inicia sesión para unirte
+              Sign in to join
             </Link>
           </p>
         </div>

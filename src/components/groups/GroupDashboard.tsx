@@ -8,6 +8,14 @@ import { useFeedUpdates, useManualFeedUpdate } from '../../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../../utils/textSanitizer';
 import { MemberManagement } from './MemberManagement';
 import type { Feed, FeedItem } from '../../types/feed';
+import { 
+  getGroupPermissions, 
+  getRoleDisplayName, 
+  getRoleBadgeColor,
+  canManageRole,
+  getAssignableRoles,
+  canManageIntegrations
+} from '../../utils/permissions';
 
 interface GroupDashboardProps {
   groupId?: string;
@@ -101,7 +109,9 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
     currentGroupId: currentGroup?.id,
     currentGroupName: currentGroup?.name,
     userGroupsCount: userGroups.length,
-    userId: user?.id
+    userId: user?.id,
+    userRole: currentGroup?.role,
+    canManage: canManageIntegrations(currentGroup?.role || 'viewer')
   });
 
   // Sync with group context if we have a groupId prop but no currentGroup - AFTER all hooks
@@ -112,40 +122,18 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
     }
   }, [groupId, currentGroup, userGroups, syncWithUrl]);
 
-  // NOW we can do conditional rendering after all hooks are called
+  // Early return if we don't have required data yet
   if (!currentGroup) {
-    console.log('❌ No currentGroup, rendering fallback message');
     return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Group...</h2>
-          <p className="text-gray-600 mb-6">
-            {groupId ? `Loading group ${groupId}...` : 'No group specified.'}
-          </p>
-          <div className="text-sm text-gray-500">
-            {userGroups.length === 0 ? (
-              <p>Loading your groups...</p>
-            ) : (
-              <p>Syncing with group context...</p>
-            )}
-          </div>
-        </div>
+      <div className="min-h-screen gradient-bg flex items-center justify-center">
+        <div className="text-white text-lg">Loading group...</div>
       </div>
     );
   }
 
-  console.log('✅ Rendering GroupDashboard for group:', {
-    groupId: currentGroup.id,
-    groupName: currentGroup.name
-  });
-
   const feeds = feedsData?.feeds || [];
   const recentItems = itemsData?.items?.slice(0, 8) || [];
+  const canManage = canManageIntegrations(currentGroup.role);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -153,19 +141,6 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
       month: 'long',
       day: 'numeric'
     });
-  };
-
-  const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'owner':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'admin':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'member':
-        return 'bg-green-100 text-green-800 border-green-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
   };
 
   const getIntegrationColor = (integrationName: string) => {
@@ -264,7 +239,7 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
         <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center space-x-4">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <span className="text-2xl font-bold text-blue-700">
                   {currentGroup.name.charAt(0).toUpperCase()}
                 </span>
@@ -341,7 +316,7 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">
+            <h2 className="text-xl font-semibold text-white">
               Group Integrations ({feeds.length})
             </h2>
             <div className="flex gap-3">
@@ -350,16 +325,16 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
                 onClick={handleManualUpdate}
                 disabled={isUpdating}
                 className="modern-button text-sm bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Actualizar todos los feeds manualmente"
+                title="Update all feeds manually"
               >
                 <svg className={`icon-sm ${isUpdating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                {isUpdating ? 'Actualizando...' : 'Refrescar Feeds'}
+                {isUpdating ? 'Updating...' : 'Refresh Feeds'}
               </button>
 
               {/* Add Integration Button */}
-              {(currentGroup.role === 'owner' || currentGroup.role === 'admin') && (
+              {canManage && (
                 <button
                   onClick={() => setShowAddForm(!showAddForm)}
                   className="modern-button text-sm"
@@ -402,7 +377,7 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
                 <span>
                   {lastUpdate.message}
                   {lastUpdate.newItems !== undefined && lastUpdate.newItems > 0 && (
-                    <span className="font-semibold"> - {lastUpdate.newItems} nuevos elementos encontrados</span>
+                    <span className="font-semibold"> - {lastUpdate.newItems} new elements found</span>
                   )}
                 </span>
                 <span className="text-xs text-gray-500 ml-auto">
@@ -425,7 +400,7 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
               </svg>
               <h3 className="text-lg font-medium text-gray-900 mb-2">No integrations yet</h3>
               <p className="text-gray-500 mb-4">Add your first integration to start monitoring updates for this group</p>
-              {(currentGroup.role === 'owner' || currentGroup.role === 'admin') && (
+              {canManage && (
                 <button
                   onClick={() => setShowAddForm(true)}
                   className="modern-button"
@@ -439,7 +414,6 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
               {feeds.map((feed: Feed) => {
                 const colorScheme = getIntegrationColor(feed.integrationName);
                 const isEditing = editingFeed === feed.id;
-                const canEdit = currentGroup.role === 'owner' || currentGroup.role === 'admin';
                 
                 return (
                   <div
@@ -447,7 +421,7 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
                     className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 group relative"
                   >
                     {/* Management buttons */}
-                    {canEdit && (
+                    {canManage && (
                       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                         <button
                           onClick={() => handleEditFeed(feed)}
@@ -543,7 +517,7 @@ export function GroupDashboard({ groupId }: GroupDashboardProps) {
           )}
 
           {/* Add Form */}
-          {showAddForm && (currentGroup.role === 'owner' || currentGroup.role === 'admin') && (
+          {showAddForm && canManage && (
             <div className="mt-6 bg-white rounded-xl p-6 shadow-sm border border-gray-200">
               <form onSubmit={handleAddFeed} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

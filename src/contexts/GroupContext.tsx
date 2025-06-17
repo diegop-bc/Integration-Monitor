@@ -90,13 +90,15 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
         } else {
           console.log('ℹ️ Group already current, no change needed');
         }
-      } else if (location.pathname.startsWith('/personal') || location.pathname === '/') {
-        console.log('🏠 URL indicates personal workspace');
+      } else if (location.pathname.startsWith('/personal') || location.pathname === '/' || location.pathname === '') {
+        console.log('🏠 URL indicates personal workspace, pathname:', location.pathname);
         // URL indicates personal workspace
         if (currentGroup) {
-          console.log('🔄 Switching from group to personal workspace');
+          console.log('🔄 Switching from group to personal workspace, clearing current group:', currentGroup.name);
           setCurrentGroup(null);
           localStorage.removeItem(STORAGE_KEY);
+        } else {
+          console.log('✅ Already in personal mode, no group set');
         }
       } else if (!currentGroup) {
         console.log('💾 No group in URL and no current group, checking localStorage...');
@@ -109,8 +111,12 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
               savedGroupId,
               groupName: savedGroup.name
             });
-            // Navigate to the saved group
-            navigate(`/group/${savedGroupId}`, { replace: true });
+            // Only restore if we're not on a personal workspace path
+            if (!location.pathname.startsWith('/personal') && location.pathname !== '/') {
+              navigate(`/group/${savedGroupId}`, { replace: true });
+            } else {
+              console.log('⏸️ Not restoring - on personal workspace path');
+            }
           } else {
             console.log('⚠️ Saved group not found in userGroups, clearing localStorage');
             localStorage.removeItem(STORAGE_KEY);
@@ -166,7 +172,16 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       // Switch to "Personal" mode
       setCurrentGroup(null);
       localStorage.removeItem(STORAGE_KEY);
-      navigate('/personal');
+      
+      // Force navigation to personal workspace with a slight delay to ensure state updates
+      setTimeout(() => {
+        if (location.pathname !== '/personal' && !location.pathname.startsWith('/personal')) {
+          console.log('🔄 Navigating to /personal from:', location.pathname);
+          navigate('/personal', { replace: true });
+        } else {
+          console.log('✅ Already on personal workspace path');
+        }
+      }, 10);
       return;
     }
 
@@ -201,6 +216,12 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   // Manual sync method for when URL params aren't detected
   const syncWithUrl = (urlGroupId: string) => {
     console.log('🔄 Manual URL sync called:', { urlGroupId, currentGroupId: currentGroup?.id });
+    
+    // Don't sync if we're in the middle of switching to personal (currentGroup is null)
+    if (!currentGroup && !urlGroupId) {
+      console.log('⏸️ Skipping sync - both current group and URL group are null (switching to personal)');
+      return;
+    }
     
     if (urlGroupId && urlGroupId !== currentGroup?.id && userGroups.length > 0) {
       const targetGroup = userGroups.find(g => g.id === urlGroupId);

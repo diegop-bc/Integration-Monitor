@@ -2,11 +2,11 @@ import { supabase } from '../lib/supabase';
 import { parseFeed } from '../utils/rssParser';
 import type { FeedItem, FeedError } from '../types/feed';
 
-const FETCH_INTERVAL = 4 * 60 * 60 * 1000; // 4 horas en millisegundos (servidor actualiza diariamente)
+const FETCH_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours in milliseconds (server updates daily)
 
 export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: FeedItem[]; error?: FeedError }> {
   try {
-    console.log(`🔍 [Debug] Iniciando actualización para feed: ${feedId}`);
+    console.log(`🔍 [Debug] Starting update for feed: ${feedId}`);
     
     // Get the feed details
     const { data: feed, error: feedError } = await supabase
@@ -16,7 +16,7 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       .single();
 
     if (feedError || !feed) {
-      console.error(`❌ [Debug] Error obteniendo feed ${feedId}:`, feedError);
+      console.error(`❌ [Debug] Error getting feed ${feedId}:`, feedError);
       return {
         newItems: [],
         error: {
@@ -27,7 +27,7 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       };
     }
 
-    console.log(`📊 [Debug] Feed encontrado: ${feed.integration_name} - URL: ${feed.url}`);
+    console.log(`📊 [Debug] Feed found: ${feed.integration_name} - URL: ${feed.url}`);
 
     // Parse the feed
     const { items, error: parseError } = await parseFeed(
@@ -37,15 +37,15 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
     );
 
     if (parseError) {
-      console.error(`❌ [Debug] Error parseando feed ${feedId}:`, parseError);
+      console.error(`❌ [Debug] Error parsing feed ${feedId}:`, parseError);
       return { newItems: [], error: parseError };
     }
 
-    console.log(`📥 [Debug] Items parseados del feed remoto: ${items.length}`);
+    console.log(`📥 [Debug] Items parsed from remote feed: ${items.length}`);
     
-    // Mostrar los primeros 3 items para debug
+    // Show the first 3 items for debug
     if (items.length > 0) {
-      console.log(`🔎 [Debug] Primeros items del feed remoto:`, items.slice(0, 3).map(item => ({
+      console.log(`🔎 [Debug] First items from remote feed:`, items.slice(0, 3).map(item => ({
         id: item.id,
         title: item.title.substring(0, 50) + '...',
         pubDate: item.pubDate
@@ -59,7 +59,7 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       .eq('feed_id', feedId);
 
     if (existingError) {
-      console.error(`❌ [Debug] Error obteniendo items existentes para feed ${feedId}:`, existingError);
+      console.error(`❌ [Debug] Error getting existing items for feed ${feedId}:`, existingError);
       return {
         newItems: [],
         error: {
@@ -70,11 +70,11 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       };
     }
 
-    console.log(`📚 [Debug] Items existentes en BD: ${existingItems?.length || 0}`);
+    console.log(`📚 [Debug] Existing items in BD: ${existingItems?.length || 0}`);
     
-    // Mostrar los primeros 3 items existentes para debug
+    // Show the first 3 existing items for debug
     if (existingItems && existingItems.length > 0) {
-      console.log(`🔎 [Debug] Primeros items en BD:`, existingItems.slice(0, 3).map(item => ({
+      console.log(`🔎 [Debug] First items in BD:`, existingItems.slice(0, 3).map(item => ({
         id: item.id,
         title: item.title?.substring(0, 50) + '...',
         pubDate: item.pub_date
@@ -85,23 +85,23 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
     const existingIds = new Set(existingItems?.map((item: any) => item.id) || []);
     const newItems = items.filter(item => !existingIds.has(item.id));
 
-    console.log(`🆕 [Debug] Items nuevos detectados: ${newItems.length}`);
+    console.log(`🆕 [Debug] New items detected: ${newItems.length}`);
     
-    // Mostrar los items nuevos para debug
+    // Show the new items for debug
     if (newItems.length > 0) {
-      console.log(`🔎 [Debug] Items nuevos:`, newItems.map(item => ({
+      console.log(`🔎 [Debug] New items:`, newItems.map(item => ({
         id: item.id,
         title: item.title.substring(0, 50) + '...',
         pubDate: item.pubDate
       })));
     } else {
-      console.log(`ℹ️ [Debug] No se encontraron items nuevos. Todos los items ya existen en la BD.`);
+      console.log(`ℹ️ [Debug] No new items found. All items already exist in the BD.`);
     }
 
     if (newItems.length > 0) {
-      console.log(`💾 [Debug] Insertando ${newItems.length} items nuevos en la BD...`);
+      console.log(`💾 [Debug] Inserting ${newItems.length} new items into the BD...`);
       
-      // Insert new items usando upsert para manejar duplicados y RLS
+      // Insert new items using upsert to handle duplicates and RLS
       const { error: insertError } = await supabase
         .from('feed_items')
         .upsert(newItems.map(item => ({
@@ -123,11 +123,11 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
         });
 
       if (insertError) {
-        console.error(`❌ [Debug] Error insertando items:`, insertError);
-        // Si es un error de RLS pero los elementos ya existen, no es un error crítico
+        console.error(`❌ [Debug] Error inserting items:`, insertError);
+        // If it's a RLS error but the elements already exist, it's not a critical error
         if (insertError.code === '42501' || insertError.message.includes('row-level security')) {
           console.warn('⚠️ [Debug] RLS policy blocked some items (likely duplicates):', insertError.message);
-          // No retornamos error, continuamos con la actualización
+          // No return error, continue with the update
         } else {
           return {
             newItems: [],
@@ -139,7 +139,7 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
           };
         }
       } else {
-        console.log(`✅ [Debug] Items insertados exitosamente en la BD`);
+        console.log(`✅ [Debug] Items inserted successfully into the BD`);
       }
     }
 
@@ -149,12 +149,12 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
       .update({ last_fetched: new Date().toISOString() })
       .eq('id', feedId);
 
-    console.log(`🔄 [Debug] Timestamp de última actualización actualizado para feed ${feedId}`);
-    console.log(`🎉 [Debug] Actualización completada. ${newItems.length} items nuevos agregados.`);
+    console.log(`🔄 [Debug] Last update timestamp updated for feed ${feedId}`);
+    console.log(`🎉 [Debug] Update completed. ${newItems.length} new items added.`);
 
     return { newItems };
   } catch (error) {
-    console.error(`💥 [Debug] Error general en fetchFeedUpdates:`, error);
+    console.error(`💥 [Debug] General error in fetchFeedUpdates:`, error);
     return {
       newItems: [],
       error: {
@@ -197,7 +197,7 @@ export async function fetchAllFeedUpdates(groupId?: string): Promise<{ updates: 
   try {
     let query = supabase.from('feeds').select('id');
     
-    // Si se proporciona groupId, filtrar feeds por grupo
+    // If groupId is provided, filter feeds by group
     if (groupId) {
       query = query.eq('group_id', groupId);
     }
@@ -252,16 +252,16 @@ export async function fetchAllFeedUpdates(groupId?: string): Promise<{ updates: 
   }
 }
 
-// Nueva función para forzar actualización manual desde el frontend
+// New function for forcing manual update from frontend
 export async function forceManualUpdate(feedId?: string, groupId?: string | null): Promise<{ success: boolean; message: string; newItems?: number; error?: FeedError }> {
   try {
-    // Siempre usar las funciones directamente sin llamar a la API
-    // Esto evita problemas con el endpoint API en Vercel
+    // Always use the functions directly without calling the API
+    // This avoids problems with the API endpoint in Vercel
     return await forceManualUpdateDirect(feedId, groupId);
   } catch (error) {
     return {
       success: false,
-      message: error instanceof Error ? error.message : 'Error de conexión',
+      message: error instanceof Error ? error.message : 'Connection error',
       error: {
         code: 'NETWORK_ERROR',
         message: error instanceof Error ? error.message : 'Network error',
@@ -271,7 +271,7 @@ export async function forceManualUpdate(feedId?: string, groupId?: string | null
   }
 }
 
-// Función para actualización directa (desarrollo)
+// Function for direct update (development)
 async function forceManualUpdateDirect(feedId?: string, groupId?: string | null): Promise<{ success: boolean; message: string; newItems?: number; error?: FeedError }> {
   try {
     let totalNewItems = 0;
@@ -279,37 +279,37 @@ async function forceManualUpdateDirect(feedId?: string, groupId?: string | null)
     let warnings: string[] = [];
 
     if (feedId) {
-      // Actualizar un feed específico
+      // Update a specific feed
       const { newItems, error } = await fetchFeedUpdates(feedId);
       if (error) {
-        // Si es un error de RLS/duplicados, lo tratamos como advertencia
+        // If it's a RLS/duplicates error, we treat it as a warning
         if (error.code === 'DB_ERROR' && error.details && typeof error.details === 'object' && 'code' in error.details && error.details.code === '42501') {
           return {
             success: true,
-            message: `Feed procesado (algunos elementos ya existían)`,
+            message: `Feed processed (some elements already existed)`,
             newItems: 0,
           };
         }
         return {
           success: false,
-          message: `Error actualizando feed: ${error.message}`,
+          message: `Error updating feed: ${error.message}`,
           error,
         };
       }
       return {
         success: true,
         message: newItems.length > 0 
-          ? `Feed actualizado exitosamente` 
-          : `Feed verificado - sin nuevos elementos`,
+          ? `Feed updated successfully` 
+          : `Feed verified - no new elements`,
         newItems: newItems.length,
       };
     } else {
-      // Actualizar todos los feeds del grupo usando la función existente
-      // Si groupId es null, fetchAllFeedUpdates obtendrá todos los feeds del usuario
+      // Update all feeds in the group using the existing function
+      // If groupId is null, fetchAllFeedUpdates will get all feeds of the user
       const { updates, error } = await fetchAllFeedUpdates(groupId || undefined);
       
       if (error) {
-        // Si es error de duplicados/RLS, intentamos obtener información útil
+        // If it's a duplicates/RLS error, we try to get useful information
         if (error.code === 'MULTIPLE_ERRORS' && Array.isArray(error.details)) {
           const rlsErrors = error.details.filter((e: any) => 
             e.code === 'DB_ERROR' && e.details?.code === '42501'
@@ -319,32 +319,32 @@ async function forceManualUpdateDirect(feedId?: string, groupId?: string | null)
           );
           
           if (rlsErrors.length > 0 && realErrors.length === 0) {
-            // Solo errores de RLS/duplicados, continuamos
-            warnings.push(`${rlsErrors.length} feeds tenían elementos duplicados (normal)`);
+            // Only RLS/duplicates errors, continue
+            warnings.push(`${rlsErrors.length} feeds had duplicate elements (normal)`);
           } else if (realErrors.length > 0) {
             return {
               success: false,
-              message: `Error actualizando feeds: ${realErrors[0].message}`,
+              message: `Error updating feeds: ${realErrors[0].message}`,
               error: realErrors[0],
             };
           }
         } else {
           return {
             success: false,
-            message: `Error actualizando feeds: ${error.message}`,
+            message: `Error updating feeds: ${error.message}`,
             error,
           };
         }
       }
 
-      // Contar resultados
+      // Count results
       const feedIds = Object.keys(updates);
       updatedFeeds = feedIds.length;
       totalNewItems = Object.values(updates).reduce((sum, items) => sum + items.length, 0);
 
       let message = totalNewItems > 0 
-        ? `Actualización completada: ${updatedFeeds} feeds procesados, ${totalNewItems} nuevos elementos encontrados`
-        : `Verificación completada: ${updatedFeeds} feeds verificados, sin nuevos elementos`;
+        ? `Update completed: ${updatedFeeds} feeds processed, ${totalNewItems} new elements found`
+        : `Verification completed: ${updatedFeeds} feeds verified, no new elements`;
       if (warnings.length > 0) {
         message += ` (${warnings.join(', ')})`;
       }
@@ -358,7 +358,7 @@ async function forceManualUpdateDirect(feedId?: string, groupId?: string | null)
   } catch (error) {
     return {
       success: false,
-      message: error instanceof Error ? error.message : 'Error desconocido',
+      message: error instanceof Error ? error.message : 'Unknown error',
       error: {
         code: 'UNKNOWN_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -368,7 +368,7 @@ async function forceManualUpdateDirect(feedId?: string, groupId?: string | null)
   }
 }
 
-// Nueva función para obtener estadísticas de actualización
+// New function for getting update statistics
 export async function getFeedUpdateStats(): Promise<{ 
   feeds: Array<{ id: string; name: string; lastFetched: string; itemCount: number }>;
   error?: FeedError;

@@ -71,7 +71,7 @@ export class GroupService {
           created_at: group.created_at,
           updated_at: group.updated_at,
           role: role,
-          member_count: memberCount || 0,
+          member_count: (memberCount || 0) + 1, // +1 for the owner
           integration_count: integrationCount || 0
         };
       })
@@ -139,7 +139,7 @@ export class GroupService {
       created_at: group.created_at,
       updated_at: group.updated_at,
       role: role,
-      member_count: memberCountResult.count || 0,
+      member_count: (memberCountResult.count || 0) + 1, // +1 for the owner
       integration_count: integrationCountResult.count || 0
     };
   }

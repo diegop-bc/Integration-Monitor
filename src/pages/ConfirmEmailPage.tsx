@@ -33,7 +33,7 @@ export function ConfirmEmailPage() {
             const invitation = await memberService.getInvitationByToken(invitationToken);
             
             setStatus('success');
-            setMessage(`¡Email confirmado exitosamente! Te has unido al grupo "${invitation?.group_name}". Serás redirigido...`);
+            setMessage(`Email confirmed successfully! You have joined the group "${invitation?.group_name}". You will be redirected...`);
             
             // Redirect to group after short delay
             setTimeout(() => {
@@ -42,7 +42,7 @@ export function ConfirmEmailPage() {
           } catch (invitationError) {
             console.error('Error accepting invitation:', invitationError);
             setStatus('success');
-            setMessage('¡Email confirmado exitosamente! Hubo un problema al unirte al grupo, pero puedes intentar nuevamente desde el enlace de invitación.');
+            setMessage('Email confirmed successfully! There was an issue joining the group, but you can try again from the invitation link.');
             
             // Redirect to login after delay
             setTimeout(() => {
@@ -52,7 +52,7 @@ export function ConfirmEmailPage() {
         } else {
           // No invitation, just email confirmation
           setStatus('success');
-          setMessage('¡Email confirmado exitosamente! Puedes iniciar sesión ahora.');
+          setMessage('Email confirmed successfully! You can now sign in.');
           
           setTimeout(() => {
             navigate('/login', { replace: true });
@@ -61,7 +61,7 @@ export function ConfirmEmailPage() {
       } catch (error) {
         console.error('Error confirming email:', error);
         setStatus('error');
-        setMessage('Error al confirmar el email. El enlace puede haber expirado.');
+        setMessage('Error confirming email. The link may have expired.');
       }
     };
 
@@ -102,13 +102,13 @@ export function ConfirmEmailPage() {
           </div>
           
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
-            {status === 'loading' && 'Confirmando Email...'}
-            {status === 'success' && '¡Email Confirmado!'}
-            {status === 'error' && 'Error de Confirmación'}
+            {status === 'loading' && 'Confirming Email...'}
+            {status === 'success' && 'Email Confirmed!'}
+            {status === 'error' && 'Confirmation Error'}
           </h2>
           
           <p className="text-gray-600 mb-6">
-            {message || 'Procesando confirmación de email...'}
+            {message || 'Processing email confirmation...'}
           </p>
 
           {status === 'error' && (
@@ -117,21 +117,21 @@ export function ConfirmEmailPage() {
                 onClick={() => window.location.reload()}
                 className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
-                Intentar Nuevamente
+                Try Again
               </button>
               
               <a
                 href="/login"
                 className="block text-blue-600 hover:text-blue-500 text-sm font-medium"
               >
-                Ir al Login
+                Go to Login
               </a>
             </div>
           )}
 
           {status === 'loading' && (
             <p className="text-sm text-gray-500">
-              Este proceso puede tomar unos segundos...
+              This process may take a few seconds...
             </p>
           )}
         </div>

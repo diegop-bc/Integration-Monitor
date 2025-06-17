@@ -46,7 +46,7 @@ export class MemberService {
 
     if (error) {
       console.error('Error fetching group members:', error);
-      throw new Error(`Error al cargar los miembros del grupo: ${error.message}`);
+      throw new Error(`Error loading group members: ${error.message}`);
     }
 
     if (!members) return [];
@@ -152,7 +152,7 @@ export class MemberService {
 
     if (error) {
       console.error('Error fetching group invitations:', error);
-      throw new Error(`Error al cargar las invitaciones del grupo: ${error.message}`);
+      throw new Error(`Error loading group invitations: ${error.message}`);
     }
 
     if (!invitations) return [];
@@ -309,9 +309,9 @@ export class MemberService {
     if (signUpError) {
       console.error('Signup error:', signUpError);
       if (signUpError.message.includes('User already registered')) {
-        throw new Error('Este email ya está registrado. Por favor inicia sesión en su lugar.');
+        throw new Error('This email is already registered. Please sign in instead.');
       }
-      throw new Error(`Error al crear la cuenta: ${signUpError.message}`);
+      throw new Error(`Error creating account: ${signUpError.message}`);
     }
 
     if (!authData.user) {
@@ -335,11 +335,11 @@ export class MemberService {
 
       if (acceptError) {
         console.error('Invitation acceptance error:', acceptError);
-        throw new Error(`Error al aceptar la invitación: ${acceptError.message}`);
+        throw new Error(acceptError.message || 'Unknown error accepting invitation');
       }
 
       if (!result?.success) {
-        throw new Error(result?.error || 'Error desconocido al aceptar la invitación');
+        throw new Error(result?.error || 'Unknown error accepting invitation');
       }
 
       console.log('✅ Invitation accepted successfully:', result);
@@ -429,7 +429,7 @@ export class MemberService {
       .maybeSingle();
 
     // Don't try to get inviter details for anonymous users to avoid auth.admin errors
-    const inviterName = 'Un miembro del equipo';
+    const inviterName = 'A team member';
 
     return {
       id: invitation.id,
@@ -463,11 +463,11 @@ export class MemberService {
 
       if (acceptError) {
         console.error('Invitation acceptance error:', acceptError);
-        throw new Error(`Error al aceptar la invitación: ${acceptError.message}`);
+        throw new Error(acceptError.message || 'Unknown error accepting invitation');
       }
 
       if (!result?.success) {
-        throw new Error(result?.error || 'Error desconocido al aceptar la invitación');
+        throw new Error(result?.error || 'Unknown error accepting invitation');
       }
 
       console.log('✅ Invitation accepted successfully for existing user:', result);
