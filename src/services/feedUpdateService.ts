@@ -6,31 +6,38 @@ const FETCH_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours in milliseconds (server up
 
 export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: FeedItem[]; error?: FeedError }> {
   try {
-    console.log(`🔍 [Debug] Starting update for feed: ${feedId}`);
-    
-    // Get the feed details
+    console.log(`🔍 [Update] Processing feed: ${feedId}`);
+
+    // Get feed details
     const { data: feed, error: feedError } = await supabase
       .from('feeds')
       .select('*')
       .eq('id', feedId)
       .single();
 
-    if (feedError || !feed) {
-      console.error(`❌ [Debug] Error getting feed ${feedId}:`, feedError);
+    if (feedError) {
       return {
         newItems: [],
         error: {
           code: 'DB_ERROR',
-          message: feedError?.message || 'Feed not found',
+          message: feedError.message,
           details: feedError,
         },
       };
     }
 
-    console.log(`📊 [Debug] Feed found: ${feed.integration_name} - URL: ${feed.url}`);
+    if (!feed) {
+      return {
+        newItems: [],
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Feed not found',
+        },
+      };
+    }
 
-    // Parse the feed
-    const { items, error: parseError } = await parseFeed(
+    // Parse feed from remote URL
+    const { items: remoteItems, error: parseError } = await parseFeed(
       feed.url,
       feed.integration_name,
       feed.integration_alias,
@@ -38,74 +45,39 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
     );
 
     if (parseError) {
-      console.error(`❌ [Debug] Error parsing feed ${feedId}:`, parseError);
-      return { newItems: [], error: parseError };
+      return {
+        newItems: [],
+        error: parseError,
+      };
     }
 
-    console.log(`📥 [Debug] Items parsed from remote feed: ${items.length}`);
-    
-    // Show the first 3 items for debug
-    if (items.length > 0) {
-      console.log(`🔎 [Debug] First items from remote feed:`, items.slice(0, 3).map(item => ({
-        id: item.id,
-        title: item.title.substring(0, 50) + '...',
-        pubDate: item.pubDate
-      })));
-    }
-
-    // Get existing items
-    const { data: existingItems, error: existingError } = await supabase
+    // Get existing items from database for comparison
+    const { data: existingItems, error: dbError } = await supabase
       .from('feed_items')
-      .select('id, title, pub_date')
+      .select('id')
       .eq('feed_id', feedId);
 
-    if (existingError) {
-      console.error(`❌ [Debug] Error getting existing items for feed ${feedId}:`, existingError);
+    if (dbError) {
       return {
         newItems: [],
         error: {
           code: 'DB_ERROR',
-          message: existingError.message,
-          details: existingError,
+          message: dbError.message,
+          details: dbError,
         },
       };
     }
 
-    console.log(`📚 [Debug] Existing items in BD: ${existingItems?.length || 0}`);
-    
-    // Show the first 3 existing items for debug
-    if (existingItems && existingItems.length > 0) {
-      console.log(`🔎 [Debug] First items in BD:`, existingItems.slice(0, 3).map(item => ({
-        id: item.id,
-        title: item.title?.substring(0, 50) + '...',
-        pubDate: item.pub_date
-      })));
-    }
-
-    // Filter out existing items
-    const existingIds = new Set(existingItems?.map((item: any) => item.id) || []);
-    const newItems = items.filter(item => !existingIds.has(item.id));
-
-    console.log(`🆕 [Debug] New items detected: ${newItems.length}`);
-    
-    // Show the new items for debug
-    if (newItems.length > 0) {
-      console.log(`🔎 [Debug] New items:`, newItems.map(item => ({
-        id: item.id,
-        title: item.title.substring(0, 50) + '...',
-        pubDate: item.pubDate
-      })));
-    } else {
-      console.log(`ℹ️ [Debug] No new items found. All items already exist in the BD.`);
-    }
+    const existingIds = new Set((existingItems || []).map(item => item.id));
+    const newItems = remoteItems.filter(item => !existingIds.has(item.id));
 
     if (newItems.length > 0) {
-      console.log(`💾 [Debug] Inserting ${newItems.length} new items into the BD...`);
+      console.log(`🆕 [Update] Found ${newItems.length} new items for feed ${feedId}`);
       
-      // Insert new items using upsert to handle duplicates and RLS
+      // Insert new items
       const { error: insertError } = await supabase
         .from('feed_items')
-        .upsert(newItems.map(item => ({
+        .insert(newItems.map(item => ({
           id: item.id,
           feed_id: feedId,
           title: item.title,
@@ -118,44 +90,32 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
           created_at: item.createdAt,
           user_id: feed.user_id,
           group_id: feed.group_id,
-        })), {
-          onConflict: 'id',
-          ignoreDuplicates: true
-        });
+        })));
 
       if (insertError) {
-        console.error(`❌ [Debug] Error inserting items:`, insertError);
-        // If it's a RLS error but the elements already exist, it's not a critical error
-        if (insertError.code === '42501' || insertError.message.includes('row-level security')) {
-          console.warn('⚠️ [Debug] RLS policy blocked some items (likely duplicates):', insertError.message);
-          // No return error, continue with the update
-        } else {
-          return {
-            newItems: [],
-            error: {
-              code: 'DB_ERROR',
-              message: insertError.message,
-              details: insertError,
-            },
-          };
+        // If it's a duplicate key error, that's normal - just return empty array
+        if (insertError.code === '23505') {
+          return { newItems: [] };
         }
-      } else {
-        console.log(`✅ [Debug] Items inserted successfully into the BD`);
+        return {
+          newItems: [],
+          error: {
+            code: 'DB_ERROR',
+            message: insertError.message,
+            details: insertError,
+          },
+        };
       }
     }
 
-    // Update last fetched timestamp
+    // Update last_fetched timestamp
     await supabase
       .from('feeds')
       .update({ last_fetched: new Date().toISOString() })
       .eq('id', feedId);
 
-    console.log(`🔄 [Debug] Last update timestamp updated for feed ${feedId}`);
-    console.log(`🎉 [Debug] Update completed. ${newItems.length} new items added.`);
-
     return { newItems };
   } catch (error) {
-    console.error(`💥 [Debug] General error in fetchFeedUpdates:`, error);
     return {
       newItems: [],
       error: {
@@ -196,11 +156,29 @@ export async function startFeedUpdates(feedId: string, onUpdate: (newItems: Feed
 
 export async function fetchAllFeedUpdates(groupId?: string): Promise<{ updates: Record<string, FeedItem[]>; error?: FeedError }> {
   try {
+    // Get current user to filter feeds properly
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return {
+        updates: {},
+        error: {
+          code: 'AUTH_ERROR',
+          message: 'User not authenticated',
+          details: userError,
+        },
+      };
+    }
+
     let query = supabase.from('feeds').select('id');
     
-    // If groupId is provided, filter feeds by group
+    // Filter by context: personal vs group
     if (groupId) {
+      // Group feeds: feeds with specific group_id
       query = query.eq('group_id', groupId);
+    } else {
+      // Personal feeds: feeds owned by the user (group_id IS NULL or user_id matches)
+      query = query.eq('user_id', user.id);
     }
 
     const { data: feeds, error: feedsError } = await query;
@@ -216,6 +194,8 @@ export async function fetchAllFeedUpdates(groupId?: string): Promise<{ updates: 
       };
     }
 
+    console.log(`🔄 [FeedUpdate] Processing ${feeds?.length || 0} ${groupId ? 'group' : 'personal'} feeds...`);
+
     const updates: Record<string, FeedItem[]> = {};
     const errors: FeedError[] = [];
 
@@ -230,6 +210,11 @@ export async function fetchAllFeedUpdates(groupId?: string): Promise<{ updates: 
         }
       })
     );
+
+    const totalNewItems = Object.values(updates).reduce((sum, items) => sum + items.length, 0);
+    if (totalNewItems > 0) {
+      console.log(`✅ [FeedUpdate] Found ${totalNewItems} new items across ${Object.keys(updates).length} feeds`);
+    }
 
     return {
       updates,

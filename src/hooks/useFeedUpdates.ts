@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { startFeedUpdates, fetchAllFeedUpdates, forceManualUpdate, getFeedUpdateStats } from '../services/feedUpdateService';
 import type { FeedItem, FeedError } from '../types/feed';
@@ -7,48 +7,63 @@ export function useFeedUpdates(feedId?: string, contextId?: string | null) {
   const [newItems, setNewItems] = useState<FeedItem[]>([]);
   const [error, setError] = useState<FeedError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const isUpdatingRef = useRef(false);
+  const cleanupRef = useRef<(() => void) | undefined>(undefined);
 
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
+    // Prevent multiple simultaneous updates
+    if (isUpdatingRef.current) return;
 
     const startUpdates = async () => {
-      if (feedId) {
-        // Single feed updates
-        cleanup = await startFeedUpdates(feedId, (items) => {
-          setNewItems((prev) => [...items, ...prev]);
-        });
-      } else {
-        // All feeds updates - pero solo para el contexto específico
-        const updateAll = async () => {
-          setIsLoading(true);
-          const { updates, error } = await fetchAllFeedUpdates(contextId || undefined);
-          
-          if (error) {
-            setError(error);
-          } else {
-            const allNewItems = Object.values(updates).flat();
-            setNewItems((prev) => [...allNewItems, ...prev]);
-          }
-          setIsLoading(false);
-        };
+      isUpdatingRef.current = true;
+      
+      try {
+        if (feedId) {
+          // Single feed updates
+          cleanupRef.current = await startFeedUpdates(feedId, (items) => {
+            setNewItems((prev) => [...items, ...prev]);
+          });
+        } else {
+          // All feeds updates - with specific context and longer intervals
+          const updateAll = async () => {
+            if (isUpdatingRef.current && !feedId) return; // Prevent overlapping updates
+            
+            setIsLoading(true);
+            const { updates, error } = await fetchAllFeedUpdates(contextId || undefined);
+            
+            if (error) {
+              setError(error);
+            } else {
+              const allNewItems = Object.values(updates).flat();
+              if (allNewItems.length > 0) {
+                setNewItems((prev) => [...allNewItems, ...prev]);
+              }
+            }
+            setIsLoading(false);
+          };
 
-        // Initial fetch
-        updateAll();
+          // Initial fetch
+          await updateAll();
 
-        // Set up interval for all feeds - cambiado a 4 horas (servidor actualiza diariamente)
-        const interval = setInterval(updateAll, 4 * 60 * 60 * 1000); // 4 horas
-        cleanup = () => clearInterval(interval);
+          // Set up interval for background updates (reduced frequency)
+          const interval = setInterval(updateAll, 6 * 60 * 60 * 1000); // 6 hours instead of 4
+          cleanupRef.current = () => clearInterval(interval);
+        }
+      } finally {
+        isUpdatingRef.current = false;
       }
     };
 
     startUpdates();
 
     return () => {
-      if (cleanup) {
-        cleanup();
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = undefined;
       }
+      isUpdatingRef.current = false;
     };
-  }, [feedId, contextId]);
+  }, [feedId, contextId]); // Removed newItems.length dependency to prevent loops
 
   const clearNewItems = () => {
     setNewItems([]);
