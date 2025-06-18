@@ -1,14 +1,17 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useCallback } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
+import { GroupDashboard } from '../components/groups/GroupDashboard'
 import { addFeed, getFeeds, getAllFeedItems, updateFeed, deleteFeed } from '../services/feedService'
-import { useFeedUpdates } from '../hooks/useFeedUpdates'
+import { useFeedUpdates, useManualFeedUpdate } from '../hooks/useFeedUpdates'
 import { sanitizeAndTruncate } from '../utils/textSanitizer'
 import type { Feed, FeedItem } from '../types/feed'
+import React from 'react'
 
-const Dashboard = () => {
+const Dashboard = React.memo(() => {
   const { user } = useAuth()
+  const params = useParams()
   const [feedUrl, setFeedUrl] = useState('')
   const [integrationName, setIntegrationName] = useState('')
   const [integrationAlias, setIntegrationAlias] = useState('')
@@ -20,30 +23,60 @@ const Dashboard = () => {
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
-  // Fetch feeds with user context
+  // Memoize values to prevent unnecessary re-renders
+  const isGroupMode = useMemo(() => !!params.groupId, [params.groupId])
+  const groupId = useMemo(() => params.groupId, [params.groupId])
+
+  // Hook for manual feed updates
+  const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(null)
+
+  // Fetch feeds with user context (personal feeds only) - ALWAYS call hooks
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
-    queryKey: ['feeds', user?.id],
-    queryFn: getFeeds,
-    enabled: !!user,
+    queryKey: ['feeds', user?.id, 'personal'],
+    queryFn: () => getFeeds(null), // null = personal feeds only
+    enabled: !!user && !isGroupMode, // Only fetch for personal mode
   })
 
-  // Fetch recent feed items with user context
+  // Fetch recent feed items with user context (personal feeds only) - ALWAYS call hooks
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
-    queryKey: ['allFeedItems', user?.id],
-    queryFn: getAllFeedItems,
-    enabled: !!user,
+    queryKey: ['allFeedItems', user?.id, 'personal'],
+    queryFn: () => getAllFeedItems(null), // null = personal feed items only
+    enabled: !!user && !isGroupMode, // Only fetch for personal mode
   })
 
-  // Listen for feed updates
-  useFeedUpdates()
+  // Listen for feed updates - ALWAYS call hooks
+  useFeedUpdates(undefined, null) // null = personal feeds context
 
-  // Add feed mutation
+  // Handle manual update
+  const handleManualUpdate = useCallback(async () => {
+    const result = await updateAllFeeds()
+    if (result.success) {
+      // Invalidate only personal queries, not all queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
+    }
+  }, [updateAllFeeds, queryClient, user?.id])
+
+  // Add feed mutation - ALWAYS call hooks
   const addFeedMutation = useMutation({
     mutationFn: ({ url, name, alias }: { url: string; name: string; alias?: string }) =>
       addFeed(url, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
+      // Invalidate only personal queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
       setFeedUrl('')
       setIntegrationName('')
       setIntegrationAlias('')
@@ -51,30 +84,49 @@ const Dashboard = () => {
     },
   })
 
-  // Update feed mutation
+  // Update feed mutation - ALWAYS call hooks
   const updateFeedMutation = useMutation({
     mutationFn: ({ id, name, alias }: { id: string; name: string; alias?: string }) =>
       updateFeed(id, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
+      // Invalidate only personal queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
       setEditingFeed(null)
       setEditName('')
       setEditAlias('')
     },
   })
 
-  // Delete feed mutation
+  // Delete feed mutation - ALWAYS call hooks
   const deleteFeedMutation = useMutation({
     mutationFn: (id: string) => deleteFeed(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id] })
+      // Invalidate only personal queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
       setDeletingFeed(null)
     },
   })
 
-  const handleAddFeed = async (e: React.FormEvent) => {
+  // NOW we can do early returns after all hooks are called
+  if (isGroupMode) {
+    return <GroupDashboard groupId={groupId} />
+  }
+
+  const handleAddFeed = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     if (!feedUrl || !integrationName) return
 
@@ -90,15 +142,15 @@ const Dashboard = () => {
     } finally {
       setIsSubmitting(false)
     }
-  }
+  }, [feedUrl, integrationName, integrationAlias, addFeedMutation])
 
-  const handleEditFeed = (feed: Feed) => {
+  const handleEditFeed = useCallback((feed: Feed) => {
     setEditingFeed(feed.id)
     setEditName(feed.integrationName)
     setEditAlias(feed.integrationAlias || '')
-  }
+  }, [])
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = useCallback(async () => {
     if (!editingFeed || !editName) return
 
     try {
@@ -110,26 +162,36 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Failed to update feed:', error)
     }
-  }
+  }, [editingFeed, editName, editAlias, updateFeedMutation])
 
-  const handleCancelEdit = () => {
+  const handleCancelEdit = useCallback(() => {
     setEditingFeed(null)
     setEditName('')
     setEditAlias('')
-  }
+  }, [])
 
-  const handleDeleteFeed = async (id: string) => {
+  const handleDeleteFeed = useCallback(async (id: string) => {
     try {
       await deleteFeedMutation.mutateAsync(id)
     } catch (error) {
       console.error('Failed to delete feed:', error)
     }
-  }
+  }, [deleteFeedMutation])
 
   const feeds = feedsData?.feeds || []
   const recentItems = itemsData?.items?.slice(0, 8) || []
 
-  const getIntegrationColor = (integrationName: string) => {
+  // Debug logs to understand the issue (keep for now until confirmed working)
+  console.log('🏠 [DASHBOARD DEBUG] Dashboard personal mode:', {
+    isGroupMode,
+    userAuthenticated: !!user,
+    feedsLoading,
+    feedsCount: feeds.length,
+    itemsLoading,
+    itemsCount: recentItems.length
+  })
+
+  const getIntegrationColor = useCallback((integrationName: string) => {
     const colors = [
       { bg: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', text: 'white', accent: '#3b82f6' },
       { bg: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', text: 'white', accent: '#10b981' },
@@ -147,9 +209,9 @@ const Dashboard = () => {
     }, 0);
     
     return colors[Math.abs(hash) % colors.length];
-  };
+  }, []);
 
-  const getTimeAgo = (dateString: string) => {
+  const getTimeAgo = useCallback((dateString: string) => {
     const now = new Date();
     const date = new Date(dateString);
     const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
@@ -164,7 +226,10 @@ const Dashboard = () => {
     if (diffInDays < 7) return `${diffInDays}d ago`;
     
     return new Date(dateString).toLocaleDateString();
-  };
+  }, []);
+
+  // Determine the correct updates link based on context
+  const updatesLink = isGroupMode ? `/group/${groupId}/updates` : '/personal/updates';
 
   return (
     <div className="min-h-screen gradient-bg">
@@ -181,18 +246,72 @@ const Dashboard = () => {
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900">
-                Your Integrations ({feeds.length})
+                Tus Integraciones ({feeds.length})
               </h2>
-              <button
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="modern-button text-sm"
-              >
-                <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Add Integration
-              </button>
+              <div className="flex gap-3">
+                {/* Manual Update Button */}
+                <button
+                  onClick={handleManualUpdate}
+                  disabled={isUpdating}
+                  className="modern-button text-sm bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Actualizar todos los feeds manualmente"
+                >
+                  <svg className={`icon-sm ${isUpdating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {isUpdating ? 'Updating...' : 'Refresh Feeds'}
+                </button>
+                
+                <button
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="modern-button text-sm"
+                >
+                  <svg className="icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Add Integration
+                </button>
+              </div>
             </div>
+
+            {/* Status Message for Manual Update */}
+            {lastUpdate && (
+              <div className={`mb-4 p-3 rounded-lg text-sm ${
+                lastUpdate.success 
+                  ? (lastUpdate.newItems && lastUpdate.newItems > 0 
+                      ? 'bg-green-50 text-green-800 border border-green-200'
+                      : 'bg-blue-50 text-blue-800 border border-blue-200'
+                    )
+                  : 'bg-red-50 text-red-800 border border-red-200'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {lastUpdate.success ? (
+                    lastUpdate.newItems && lastUpdate.newItems > 0 ? (
+                      <svg className="icon-sm text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="icon-sm text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    )
+                  ) : (
+                    <svg className="icon-sm text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                  <span>
+                    {lastUpdate.message}
+                    {lastUpdate.newItems !== undefined && lastUpdate.newItems > 0 && (
+                      <span className="font-semibold"> - {lastUpdate.newItems} new elements found</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-gray-500 ml-auto">
+                    {lastUpdate.timestamp.toLocaleTimeString()}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {feedsLoading ? (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -205,13 +324,13 @@ const Dashboard = () => {
                 <svg className="icon-xl text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
                 </svg>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No integrations yet</h3>
-                <p className="text-gray-500 mb-4">Add your first integration to start monitoring updates</p>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No hay integraciones aún</h3>
+                <p className="text-gray-500 mb-4">Agrega tu primera integración para empezar a monitorear actualizaciones</p>
                 <button
                   onClick={() => setShowAddForm(true)}
                   className="modern-button"
                 >
-                  Add Your First Integration
+                  Agregar Primera Integración
                 </button>
               </div>
             ) : (
@@ -388,7 +507,10 @@ const Dashboard = () => {
 
       {/* Delete Confirmation Modal */}
       {deletingFeed && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)' }}
+        >
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Integration</h3>
             <p className="text-gray-600 mb-6">
@@ -415,10 +537,10 @@ const Dashboard = () => {
       {/* Timeline Section */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-white">Recent Updates</h2>
+          <h2 className="text-2xl font-bold text-white">Actualizaciones Recientes</h2>
           {recentItems.length > 0 && (
-            <Link to="/updates" className="secondary-button">
-              View All Updates →
+            <Link to={updatesLink} className="secondary-button">
+              Ver Todas las Actualizaciones →
             </Link>
           )}
         </div>
@@ -434,8 +556,8 @@ const Dashboard = () => {
             <svg className="icon-xl text-white/50 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
             </svg>
-            <h3 className="text-xl font-semibold text-white mb-2">No updates yet</h3>
-            <p className="text-blue-200">Add some integrations to see their latest updates here</p>
+            <h3 className="text-xl font-semibold text-white mb-2">No hay actualizaciones aún</h3>
+            <p className="text-blue-200">Agrega algunas integraciones para ver sus últimas actualizaciones aquí</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -505,6 +627,8 @@ const Dashboard = () => {
       </div>
     </div>
   )
-}
+})
+
+Dashboard.displayName = 'Dashboard'
 
 export default Dashboard

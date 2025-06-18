@@ -96,6 +96,10 @@ button:focus-visible {
   overflow: hidden;
 }
 
+#group-description{
+  color: #000;
+}
+
 /* Modern form styles */
 .modern-input {
   width: 100%;

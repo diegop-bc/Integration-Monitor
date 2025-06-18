@@ -1,36 +1,45 @@
-import { useQuery } from '@tanstack/react-query';
+import { useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getAllFeedItems } from '../../services/feedService';
+import { useGroup } from '../../contexts/GroupContext';
 import { useFeedUpdates, usePaginatedFeedItems, useIntegrations } from '../../hooks/useFeedUpdates';
 import FeedItemCard from './FeedItemCard';
 import type { FeedItem } from '../../types/feed';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const UnifiedFeed = () => {
   const { user } = useAuth();
+  const { currentGroup } = useGroup();
+  const params = useParams();
   const [selectedIntegration, setSelectedIntegration] = useState<string>('all');
   
-  // Get available integrations for filter
-  const { integrations } = useIntegrations();
+  // Determine context from URL
+  const isGroupMode = !!params.groupId;
+  const groupId = params.groupId || null;
+  const contextId = isGroupMode ? groupId : null; // null for personal, groupId for group
   
-  // Use paginated feed items hook with filter
-  const { items, loadMore, hasMore, isLoadingMore, totalCount, reset } = usePaginatedFeedItems(20, selectedIntegration === 'all' ? undefined : selectedIntegration);
+  // Get available integrations for filter with context
+  const { integrations } = useIntegrations(contextId);
   
-  // Initial query for loading state and error handling with user context
-  const { isLoading, error, refetch } = useQuery({
-    queryKey: ['allFeedItems', user?.id],
-    queryFn: getAllFeedItems,
-    enabled: !!user,
-    refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
-  });
+  // Use paginated feed items hook with filter and context
+  const { items, loadMore, hasMore, isLoadingMore, totalCount, reset } = usePaginatedFeedItems(
+    20, 
+    selectedIntegration === 'all' ? undefined : selectedIntegration,
+    contextId
+  );
 
-  // Listen for new updates across all feeds
-  const { newItems } = useFeedUpdates();
+  // Listen for new updates across all feeds - with specific context
+  useFeedUpdates(undefined, contextId);
+
+  // Force initial load when the component mounts or context changes
+  useEffect(() => {
+    if (user && items.length === 0) {
+      loadMore();
+    }
+  }, [user, contextId, selectedIntegration]);
 
   const handleRefresh = () => {
     reset();
-    refetch();
-    // Load first page again
+    // Load first page again after reset
     setTimeout(() => loadMore(), 100);
   };
 
@@ -84,6 +93,26 @@ const UnifiedFeed = () => {
     return colors[Math.abs(hash) % colors.length];
   };
 
+  // Get context title for header
+  const getContextTitle = () => {
+    if (isGroupMode && currentGroup) {
+      return `${currentGroup.name} Updates`;
+    }
+    return 'Integration Updates';
+  };
+
+  const getContextDescription = () => {
+    const updateCount = totalCount > 0 ? totalCount : items.length;
+    const contextName = isGroupMode && currentGroup ? currentGroup.name : 'your integrations';
+    
+    if (selectedIntegration === 'all') {
+      return `${updateCount} total updates from ${contextName}`;
+    }
+    
+    const integrationDisplayName = integrations.find(i => i.name === selectedIntegration)?.displayName || selectedIntegration;
+    return `${updateCount} updates from ${integrationDisplayName} in ${contextName}`;
+  };
+
   return (
     <div className="min-h-screen gradient-bg">
       <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -91,24 +120,21 @@ const UnifiedFeed = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">
-              Integration Updates
+              {getContextTitle()}
             </h1>
             <p className="text-blue-200 text-lg">
-              {selectedIntegration === 'all' 
-                ? `${totalCount > 0 ? `${totalCount} total updates` : `${items.length} updates`} from all your integrations`
-                : `${totalCount > 0 ? `${totalCount} updates` : `${items.length} updates`} from ${integrations.find(i => i.name === selectedIntegration)?.displayName || selectedIntegration}`
-              }
+              {getContextDescription()}
             </p>
           </div>
           <button 
             onClick={handleRefresh}
-            disabled={isLoading}
+            disabled={isLoadingMore}
             className="secondary-button disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-3"
           >
-            <svg className={`icon-md ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`icon-md ${isLoadingMore ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
-            {isLoading ? 'Refreshing...' : 'Refresh'}
+            {isLoadingMore ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
 
@@ -172,36 +198,9 @@ const UnifiedFeed = () => {
           </div>
         )}
 
-        {/* New Items Notification */}
-        {newItems.length > 0 && (
-          <div className="modern-card p-6 border-l-4 border-green-500">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-green-100 rounded-full">
-                  <svg className="icon-md text-green-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 text-lg">New Updates Available!</h3>
-                  <p className="text-gray-600">
-                    {newItems.length} new update{newItems.length > 1 ? 's' : ''} available! 
-                  </p>
-                </div>
-              </div>
-              <button 
-                onClick={handleRefresh}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-              >
-                Refresh to see them
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Feed Items */}
         <div className="space-y-6">
-          {isLoading && items.length === 0 ? (
+          {isLoadingMore && items.length === 0 ? (
             <div className="text-center py-16">
               <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
                 <svg className="icon-lg animate-spin text-white" fill="none" viewBox="0 0 24 24">
@@ -211,22 +210,6 @@ const UnifiedFeed = () => {
               </div>
               <h3 className="text-xl font-semibold text-white mb-2">Loading integration updates...</h3>
               <p className="text-blue-200">Fetching the latest changes from your integrations</p>
-            </div>
-          ) : error ? (
-            <div className="modern-card p-12 text-center">
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="icon-lg text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Error loading feed items</h3>
-              <p className="text-gray-600 mb-6">We couldn't load your integration updates. Please try again.</p>
-              <button 
-                onClick={handleRefresh}
-                className="modern-button"
-              >
-                Try Again
-              </button>
             </div>
           ) : items.length === 0 ? (
             <div className="modern-card p-16 text-center">
@@ -267,9 +250,9 @@ const UnifiedFeed = () => {
               )}
             </div>
           ) : (
-            items.map((item: FeedItem) => (
+            items.map((item: FeedItem, index: number) => (
               <FeedItemCard 
-                key={`${item.feedInfo?.id || 'unknown'}-${item.id}`} 
+                key={`${item.feedInfo?.id || 'unknown'}-${item.id}-${item.pubDate}-${index}`} 
                 item={item} 
                 timeAgo={getTimeAgo(item.pubDate)}
               />

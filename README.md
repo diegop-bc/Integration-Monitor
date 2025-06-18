@@ -1,8 +1,8 @@
-# Integration Monitor
+# integrations.me
 
 A modern RSS-based changelog monitoring tool built with React, TypeScript, and Vite. Track updates across all your integrations and third-party services in one unified timeline.
 
-![Integration Monitor](https://img.shields.io/badge/React-19+-blue.svg)
+![integrations.me](https://img.shields.io/badge/React-19+-blue.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5+-blue.svg)
 ![Vite](https://img.shields.io/badge/Vite-6+-purple.svg)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4+-teal.svg)

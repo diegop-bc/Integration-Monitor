@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { memberService } from '../services/memberService';
 import { getRedirectUrl } from '../lib/config';
 
 type AuthMode = 'login' | 'signup';
@@ -9,6 +10,7 @@ type AuthMode = 'login' | 'signup';
 export default function LoginPage() {
   const { user, loading, initialized } = useAuth();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,12 +19,59 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   
+  // Get invitation params
+  const invitationToken = searchParams.get('invitation');
+  const invitationEmail = searchParams.get('email');
+  
   // Get the page the user was trying to access before login
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
 
-  // Redirect authenticated users
-  if (user && initialized) {
-    return <Navigate to={from} replace />;
+  // Pre-fill email if coming from invitation
+  useEffect(() => {
+    if (invitationEmail) {
+      setEmail(invitationEmail);
+    }
+    // Show message from state if any (e.g., from account creation)
+    if (location.state?.message) {
+      setMessage(location.state.message);
+      if (location.state?.email) {
+        setEmail(location.state.email);
+      }
+    }
+  }, [invitationEmail, location.state]);
+
+  // Handle invitation after successful login
+  useEffect(() => {
+    const handleInvitationAfterLogin = async () => {
+      if (user && invitationToken && user.email === invitationEmail) {
+        try {
+          await memberService.acceptInvitationExistingUser(invitationToken);
+          setMessage('You have successfully joined the group!');
+          
+          // Get the group ID from the invitation to redirect properly
+          const invitation = await memberService.getInvitationByToken(invitationToken);
+          const redirectUrl = invitation ? `/group/${invitation.group_id}` : '/groups';
+          
+          // Redirect to the specific group or groups page after a short delay
+          setTimeout(() => {
+            window.location.href = redirectUrl;
+          }, 2000);
+        } catch (err) {
+          setError(`Error joining the group: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+      }
+    };
+
+    if (user && initialized && invitationToken) {
+      handleInvitationAfterLogin();
+    }
+  }, [user, initialized, invitationToken, invitationEmail]);
+
+  // Redirect authenticated users (but not if they have a pending invitation)
+  if (user && initialized && !invitationToken) {
+    // Check if there's a redirect URL from state (from successful signup)
+    const redirectUrl = location.state?.redirectAfterLogin || from;
+    return <Navigate to={redirectUrl} replace />;
   }
 
   // Show loading while checking auth state
@@ -109,7 +158,7 @@ export default function LoginPage() {
       >
         <div className="relative z-10 flex flex-col justify-center px-12 text-white" style={{ margin: "auto" }}>
           <h1 className="text-5xl font-bold mb-6 drop-shadow-lg">
-            Integration Monitor
+            integrations.me
           </h1>
           <p className="text-xl mb-8 text-gray-100 drop-shadow-md">
             Monitor your integrations via RSS Feed
@@ -154,7 +203,7 @@ export default function LoginPage() {
           {/* Mobile Hero */}
           <div className="lg:hidden text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2 drop-shadow-sm">
-              Integration Monitor
+              integrations.me
             </h1>
             <p className="text-gray-700 drop-shadow-sm">
               Monitor your integrations via RSS Feed
@@ -188,15 +237,35 @@ export default function LoginPage() {
 
             {/* Form Header */}
             <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {authMode === 'login' ? 'Welcome back' : 'Create your account'}
-              </h2>
-              <p className="text-gray-700 mt-2">
-                {authMode === 'login' 
-                  ? 'Sign in to access your private integrations'
-                  : 'Start monitoring your integrations today'
-                }
-              </p>
+              {invitationToken ? (
+                <>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    Sign in to Join
+                  </h2>
+                  <p className="text-gray-700 mt-2">
+                    You have been invited to join a group. Sign in to accept the invitation.
+                  </p>
+                  {invitationEmail && (
+                    <div className="mt-3 p-3 bg-blue-50/90 backdrop-blur-sm border border-blue-200 rounded-lg">
+                      <p className="text-blue-800 text-sm">
+                        <strong>Invitation email:</strong> {invitationEmail}
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {authMode === 'login' ? 'Welcome back' : 'Create your account'}
+                  </h2>
+                  <p className="text-gray-700 mt-2">
+                    {authMode === 'login' 
+                      ? 'Sign in to access your private integrations'
+                      : 'Start monitoring your integrations today'
+                    }
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Error/Success Messages */}

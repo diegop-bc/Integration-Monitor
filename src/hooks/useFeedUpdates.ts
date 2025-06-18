@@ -1,54 +1,69 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { startFeedUpdates, fetchAllFeedUpdates } from '../services/feedUpdateService';
+import { startFeedUpdates, fetchAllFeedUpdates, forceManualUpdate, getFeedUpdateStats } from '../services/feedUpdateService';
 import type { FeedItem, FeedError } from '../types/feed';
 
-export function useFeedUpdates(feedId?: string) {
+export function useFeedUpdates(feedId?: string, contextId?: string | null) {
   const [newItems, setNewItems] = useState<FeedItem[]>([]);
   const [error, setError] = useState<FeedError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const isUpdatingRef = useRef(false);
+  const cleanupRef = useRef<(() => void) | undefined>(undefined);
 
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
+    // Prevent multiple simultaneous updates
+    if (isUpdatingRef.current) return;
 
     const startUpdates = async () => {
-      if (feedId) {
-        // Single feed updates
-        cleanup = await startFeedUpdates(feedId, (items) => {
-          setNewItems((prev) => [...items, ...prev]);
-        });
-      } else {
-        // All feeds updates
-        const updateAll = async () => {
-          setIsLoading(true);
-          const { updates, error } = await fetchAllFeedUpdates();
-          
-          if (error) {
-            setError(error);
-          } else {
-            const allNewItems = Object.values(updates).flat();
-            setNewItems((prev) => [...allNewItems, ...prev]);
-          }
-          setIsLoading(false);
-        };
+      isUpdatingRef.current = true;
+      
+      try {
+        if (feedId) {
+          // Single feed updates
+          cleanupRef.current = await startFeedUpdates(feedId, (items) => {
+            setNewItems((prev) => [...items, ...prev]);
+          });
+        } else {
+          // All feeds updates - with specific context and longer intervals
+          const updateAll = async () => {
+            if (isUpdatingRef.current && !feedId) return; // Prevent overlapping updates
+            
+            setIsLoading(true);
+            const { updates, error } = await fetchAllFeedUpdates(contextId || undefined);
+            
+            if (error) {
+              setError(error);
+            } else {
+              const allNewItems = Object.values(updates).flat();
+              if (allNewItems.length > 0) {
+                setNewItems((prev) => [...allNewItems, ...prev]);
+              }
+            }
+            setIsLoading(false);
+          };
 
-        // Initial fetch
-        updateAll();
+          // Initial fetch
+          await updateAll();
 
-        // Set up interval for all feeds
-        const interval = setInterval(updateAll, 15 * 60 * 1000); // 15 minutes
-        cleanup = () => clearInterval(interval);
+          // Set up interval for background updates (reduced frequency)
+          const interval = setInterval(updateAll, 6 * 60 * 60 * 1000); // 6 hours instead of 4
+          cleanupRef.current = () => clearInterval(interval);
+        }
+      } finally {
+        isUpdatingRef.current = false;
       }
     };
 
     startUpdates();
 
     return () => {
-      if (cleanup) {
-        cleanup();
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = undefined;
       }
+      isUpdatingRef.current = false;
     };
-  }, [feedId]);
+  }, [feedId, contextId]); // Removed newItems.length dependency to prevent loops
 
   const clearNewItems = () => {
     setNewItems([]);
@@ -62,8 +77,98 @@ export function useFeedUpdates(feedId?: string) {
   };
 }
 
+// Nuevo hook para actualización manual
+export function useManualFeedUpdate(groupId?: string | null) {
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<{
+    success: boolean;
+    message: string;
+    newItems?: number;
+    timestamp: Date;
+  } | null>(null);
+
+  const updateFeed = async (feedId?: string) => {
+    setIsUpdating(true);
+    try {
+      const result = await forceManualUpdate(feedId, groupId);
+      setLastUpdate({
+        ...result,
+        timestamp: new Date(),
+      });
+      return result;
+    } catch (error) {
+      const errorResult = {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date(),
+      };
+      setLastUpdate(errorResult);
+      return errorResult;
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const updateAllFeeds = () => updateFeed();
+  const updateSingleFeed = (feedId: string) => updateFeed(feedId);
+
+  return {
+    isUpdating,
+    lastUpdate,
+    updateAllFeeds,
+    updateSingleFeed,
+  };
+}
+
+// Hook para estadísticas de feeds
+export function useFeedStats() {
+  const { user } = useAuth();
+  const [stats, setStats] = useState<Array<{ id: string; name: string; lastFetched: string; itemCount: number }>>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<FeedError | null>(null);
+
+  const fetchStats = async () => {
+    if (!user) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const { feeds, error: statsError } = await getFeedUpdateStats();
+      
+      if (statsError) {
+        setError(statsError);
+      } else {
+        setStats(feeds);
+      }
+    } catch (err) {
+      setError({
+        code: 'UNKNOWN_ERROR',
+        message: err instanceof Error ? err.message : 'Error obtaining statistics',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchStats();
+    } else {
+      setStats([]);
+    }
+  }, [user?.id]);
+
+  return {
+    stats,
+    isLoading,
+    error,
+    refetchStats: fetchStats,
+  };
+}
+
 // Hook for paginated feed items
-export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: string) {
+export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: string, groupId?: string | null) {
   const { user } = useAuth();
   const [allItems, setAllItems] = useState<FeedItem[]>([]);
   const [hasMore, setHasMore] = useState(true);
@@ -79,7 +184,7 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
     try {
       const { getAllFeedItemsPaginated } = await import('../services/feedService');
       const { items, hasMore: moreAvailable, totalCount: total, error } = 
-        await getAllFeedItemsPaginated(limit, offset, integrationFilter);
+        await getAllFeedItemsPaginated(limit, offset, integrationFilter, groupId);
       
       if (error) {
         console.error('Error loading more items:', error);
@@ -110,7 +215,7 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
     try {
       const { getAllFeedItemsPaginated } = await import('../services/feedService');
       const { items, hasMore: moreAvailable, totalCount: total, error } = 
-        await getAllFeedItemsPaginated(limit, 0, integrationFilter);
+        await getAllFeedItemsPaginated(limit, 0, integrationFilter, groupId);
       
       if (error) {
         console.error('Error loading initial items:', error);
@@ -127,13 +232,13 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
     }
   };
 
-  // Reset and load initial data when filter changes or user changes
+  // Reset and load initial data when filter changes, group changes, or user changes
   useEffect(() => {
     if (user) {
       reset();
       loadInitialData();
     }
-  }, [integrationFilter, user?.id]);
+  }, [integrationFilter, groupId, user?.id]);
 
   return {
     items: allItems,
@@ -146,7 +251,7 @@ export function usePaginatedFeedItems(limit: number = 20, integrationFilter?: st
 }
 
 // Hook for fetching available integrations
-export function useIntegrations() {
+export function useIntegrations(groupId?: string | null) {
   const { user } = useAuth();
   const [integrations, setIntegrations] = useState<Array<{ name: string; displayName: string; count: number }>>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -160,7 +265,7 @@ export function useIntegrations() {
     
     try {
       const { getIntegrationsWithCounts } = await import('../services/feedService');
-      const { integrations: data, error: fetchError } = await getIntegrationsWithCounts();
+      const { integrations: data, error: fetchError } = await getIntegrationsWithCounts(groupId);
       
       if (fetchError) {
         setError(fetchError);
@@ -183,7 +288,7 @@ export function useIntegrations() {
     } else {
       setIntegrations([]);
     }
-  }, [user?.id]);
+  }, [user?.id, groupId]);
 
   return {
     integrations,
