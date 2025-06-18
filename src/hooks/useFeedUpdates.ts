@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { startFeedUpdates, fetchAllFeedUpdates, forceManualUpdate, getFeedUpdateStats } from '../services/feedUpdateService';
 import type { FeedItem, FeedError } from '../types/feed';
 
-export function useFeedUpdates(feedId?: string) {
+export function useFeedUpdates(feedId?: string, contextId?: string | null) {
   const [newItems, setNewItems] = useState<FeedItem[]>([]);
   const [error, setError] = useState<FeedError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,10 +18,10 @@ export function useFeedUpdates(feedId?: string) {
           setNewItems((prev) => [...items, ...prev]);
         });
       } else {
-        // All feeds updates
+        // All feeds updates - pero solo para el contexto específico
         const updateAll = async () => {
           setIsLoading(true);
-          const { updates, error } = await fetchAllFeedUpdates();
+          const { updates, error } = await fetchAllFeedUpdates(contextId || undefined);
           
           if (error) {
             setError(error);
@@ -48,7 +48,7 @@ export function useFeedUpdates(feedId?: string) {
         cleanup();
       }
     };
-  }, [feedId]);
+  }, [feedId, contextId]);
 
   const clearNewItems = () => {
     setNewItems([]);

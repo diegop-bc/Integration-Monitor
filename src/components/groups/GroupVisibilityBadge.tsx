@@ -1,4 +1,3 @@
-import React from 'react';
 import type { GroupWithMembership } from '../../types/group';
 
 interface GroupVisibilityBadgeProps {

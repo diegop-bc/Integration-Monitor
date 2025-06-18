@@ -13,6 +13,14 @@ import type {
 
 export class GroupService {
   /**
+   * Clean and validate group ID
+   */
+  private cleanGroupId(groupId: string): string {
+    // Remove any trailing dots, spaces, or other unwanted characters
+    return groupId.trim().replace(/[^a-f0-9-]/gi, '');
+  }
+
+  /**
    * Get all groups for the current user using RPC function
    * Uses the new get_user_member_groups RPC to get only groups where user is a member
    */
@@ -105,15 +113,18 @@ export class GroupService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
+    // Clean the group ID to remove any unwanted characters
+    const cleanedGroupId = this.cleanGroupId(groupId);
+
     // Use RPC function to get group with user role
     const { data: groupData, error } = await supabase
-      .rpc('get_group_with_user_role', { group_uuid: groupId });
+      .rpc('get_group_with_user_role', { group_uuid: cleanedGroupId });
 
     if (error) throw error;
 
     if (!groupData || groupData.length === 0) {
       // If group not found via member function, try public group access
-      const publicGroup = await this.getPublicGroup(groupId);
+      const publicGroup = await this.getPublicGroup(cleanedGroupId);
       if (publicGroup) {
         // Convert PublicGroup to GroupWithMembership format
         return {
@@ -140,7 +151,7 @@ export class GroupService {
     const { count: integrationCount } = await supabase
       .from('feeds')
       .select('*', { count: 'exact' })
-      .eq('group_id', groupId);
+      .eq('group_id', cleanedGroupId);
 
     return {
       id: group.id,
@@ -163,9 +174,12 @@ export class GroupService {
    */
   async getPublicGroup(groupId: string): Promise<PublicGroup | null> {
     try {
+      // Clean the group ID to remove any unwanted characters
+      const cleanedGroupId = this.cleanGroupId(groupId);
+      
       // Use RPC function to get public group stats
       const { data: statsData, error: statsError } = await supabase
-        .rpc('get_public_group_stats', { group_uuid: groupId });
+        .rpc('get_public_group_stats', { group_uuid: cleanedGroupId });
 
       if (statsError) {
         // If error is because group is not public, return null
@@ -191,7 +205,7 @@ export class GroupService {
         try {
           const { data: groupWithRole } = await supabase
             .rpc('get_group_with_user_role', { 
-              group_uuid: groupId 
+              group_uuid: cleanedGroupId 
             });
 
           if (groupWithRole && groupWithRole.length > 0) {
@@ -235,8 +249,11 @@ export class GroupService {
    * Get public group feeds
    */
   async getPublicGroupFeeds(groupId: string): Promise<PublicGroupFeedsResponse[]> {
+    // Clean the group ID to remove any unwanted characters
+    const cleanedGroupId = this.cleanGroupId(groupId);
+    
     const { data: feedsData, error } = await supabase
-      .rpc('get_public_group_feeds', { group_uuid: groupId });
+      .rpc('get_public_group_feeds', { group_uuid: cleanedGroupId });
 
     if (error) throw error;
 
@@ -250,16 +267,15 @@ export class GroupService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
+    // Clean the group ID to remove any unwanted characters
+    const cleanedGroupId = this.cleanGroupId(groupId);
+
     const { data: result, error } = await supabase
-      .rpc('join_public_group', { group_uuid: groupId });
+      .rpc('join_public_group', { group_uuid: cleanedGroupId });
 
     if (error) throw error;
 
-    if (!result || result.length === 0) {
-      return { success: false, message: 'Failed to join group' };
-    }
-
-    return result[0];
+    return result;
   }
 
   /**
@@ -438,4 +454,35 @@ export class GroupService {
   }
 }
 
-export const groupService = new GroupService(); 
+export const groupService = new GroupService();
+
+// Debug function to check if a group is public
+export async function debugCheckGroupVisibility(groupId: string): Promise<{ isPublic: boolean; error?: string }> {
+  try {
+    // Clean and validate group ID - same logic as in feedService
+    const cleanedId = groupId.trim().replace(/[^a-f0-9-]/gi, '');
+    
+    // Direct query to check group visibility
+    const { data, error } = await supabase
+      .from('user_groups')
+      .select('id, name, is_public')
+      .eq('id', cleanedId)
+      .single();
+    
+    if (error) {
+      console.error('❌ [DEBUG] Error checking group visibility:', error);
+      return { isPublic: false, error: error.message };
+    }
+    
+    console.log('🔍 [DEBUG] Group visibility check:', {
+      groupId: cleanedId,
+      groupName: data.name,
+      isPublic: data.is_public
+    });
+    
+    return { isPublic: data.is_public || false };
+  } catch (error) {
+    console.error('💥 [DEBUG] Exception in debugCheckGroupVisibility:', error);
+    return { isPublic: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+} 

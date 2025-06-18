@@ -33,7 +33,8 @@ export async function fetchFeedUpdates(feedId: string): Promise<{ newItems: Feed
     const { items, error: parseError } = await parseFeed(
       feed.url,
       feed.integration_name,
-      feed.integration_alias
+      feed.integration_alias,
+      feedId
     );
 
     if (parseError) {

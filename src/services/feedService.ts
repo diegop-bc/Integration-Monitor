@@ -2,6 +2,14 @@ import { supabase } from '../lib/supabase';
 import { parseFeed } from '../utils/rssParser';
 import type { Feed, FeedItem, FeedError } from '../types/feed';
 
+/**
+ * Clean and validate group ID
+ */
+function cleanGroupId(groupId: string): string {
+  // Remove any trailing dots, spaces, or other unwanted characters
+  return groupId.trim().replace(/[^a-f0-9-]/gi, '');
+}
+
 export async function addFeed(
   url: string, 
   integrationName: string, 
@@ -9,6 +17,9 @@ export async function addFeed(
   groupId?: string | null
 ): Promise<{ feed: Feed | null; error?: FeedError }> {
   try {
+    // Clean groupId if provided
+    const cleanedGroupId = groupId ? cleanGroupId(groupId) : null;
+
     // Get current user
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     
@@ -23,14 +34,15 @@ export async function addFeed(
       };
     }
 
-    // First parse the feed to validate it
-    const { items, error: parseError } = await parseFeed(url, integrationName, integrationAlias);
+    // First validate the feed without feedId to ensure it's accessible
+    const { items: _testItems, error: parseError } = await parseFeed(url, integrationName, integrationAlias);
     
     if (parseError) {
       return { feed: null, error: parseError };
     }
 
-    // Create the feed record with user_id and optional group_id
+    // Create the feed record first to get the feedId
+    // For group feeds, don't assign user_id to prevent them from appearing in personal dashboard
     const { data: feed, error } = await supabase
       .from('feeds')
       .insert({
@@ -39,8 +51,8 @@ export async function addFeed(
         integration_name: integrationName,
         integration_alias: integrationAlias,
         last_fetched: new Date().toISOString(),
-        user_id: user.id,
-        group_id: groupId || null, // NULL for personal feeds, group ID for group feeds
+        user_id: cleanedGroupId ? null : user.id, // Only assign user_id for personal feeds
+        group_id: cleanedGroupId || null,
       })
       .select()
       .single();
@@ -56,7 +68,17 @@ export async function addFeed(
       };
     }
 
-    // Insert the feed items with the feed_id, user_id, and group_id
+    // Now parse the feed again with the feedId to get proper compound IDs
+    const { items, error: reparseError } = await parseFeed(url, integrationName, integrationAlias, feed.id);
+    
+    if (reparseError) {
+      // If reparsing fails, delete the feed record and return error
+      await supabase.from('feeds').delete().eq('id', feed.id);
+      return { feed: null, error: reparseError };
+    }
+
+    // Insert the feed items with the feed_id and group_id
+    // For group feed items, don't assign user_id to prevent them from appearing in personal dashboard
     const { error: itemsError } = await supabase
       .from('feed_items')
       .insert(items.map(item => ({
@@ -70,11 +92,13 @@ export async function addFeed(
         integration_name: item.integrationName,
         integration_alias: item.integrationAlias,
         created_at: item.createdAt,
-        user_id: user.id,
-        group_id: groupId || null,
+        user_id: cleanedGroupId ? null : user.id, // Only assign user_id for personal feed items
+        group_id: cleanedGroupId || null,
       })));
 
     if (itemsError) {
+      // If items insertion fails, delete the feed record and return error
+      await supabase.from('feeds').delete().eq('id', feed.id);
       return {
         feed: null,
         error: {
@@ -125,23 +149,72 @@ export async function getFeeds(groupId?: string | null): Promise<{ feeds: Feed[]
       };
     }
 
-    let query = supabase
-      .from('feeds')
-      .select('*')
-      .eq('user_id', user.id); // Always filter by current user
+    console.log('🔍 [FEEDSERVICE DEBUG] getFeeds called:', {
+      groupId,
+      userId: user.id,
+      isPersonalMode: groupId === null || groupId === undefined
+    })
 
-    // Filter by group context
+    // Handle personal feeds with simplified approach
     if (groupId === null || groupId === undefined) {
-      // Personal feeds only (group_id IS NULL)
-      query = query.is('group_id', null);
-    } else {
-      // Specific group feeds only
-      query = query.eq('group_id', groupId);
+      // For personal dashboard, show all feeds accessible to the user
+      // This includes both personal feeds (group_id IS NULL) and feeds from owned groups
+      
+      console.log('🔄 [FEEDSERVICE DEBUG] Getting all accessible feeds for personal dashboard...')
+      
+      // Use a direct query to get all feeds where:
+      // 1. user_id matches (personal feeds)
+      // 2. OR the user owns the group that contains the feed
+      const { data: allFeeds, error: feedsError } = await supabase
+        .from('feeds')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      console.log('📊 [FEEDSERVICE DEBUG] All user feeds query response:', {
+        error: feedsError,
+        feedsCount: allFeeds?.length || 0
+      })
+
+      if (feedsError) {
+        console.error('❌ [FEEDSERVICE DEBUG] All user feeds query error:', feedsError)
+        return {
+          feeds: [],
+          error: {
+            code: 'DB_ERROR',
+            message: feedsError.message,
+            details: feedsError,
+          },
+        };
+      }
+
+      const mappedFeeds = (allFeeds || []).map((feed: any) => ({
+        id: feed.id,
+        url: feed.url,
+        title: feed.title,
+        description: feed.description,
+        integrationName: feed.integration_name,
+        integrationAlias: feed.integration_alias,
+        lastFetched: feed.last_fetched,
+        createdAt: feed.created_at,
+        updatedAt: feed.updated_at,
+      }));
+
+      console.log('✅ [FEEDSERVICE DEBUG] Using all user feeds:', mappedFeeds.length)
+      return { feeds: mappedFeeds };
     }
 
-    const { data: feedsData, error } = await query.order('created_at', { ascending: false });
+    // For specific group feeds, use the existing logic
+    const { data: feedsData, error } = await supabase
+      .rpc('get_user_accessible_feeds', { user_uuid: user.id });
+
+    console.log('📊 [FEEDSERVICE DEBUG] Group feeds RPC response:', {
+      error,
+      feedsDataLength: feedsData?.length || 0
+    })
 
     if (error) {
+      console.error('❌ [FEEDSERVICE DEBUG] Group feeds RPC error:', error)
       return {
         feeds: [],
         error: {
@@ -152,7 +225,16 @@ export async function getFeeds(groupId?: string | null): Promise<{ feeds: Feed[]
       };
     }
 
-    const mappedFeeds = (feedsData || []).map((feed: any) => ({
+    // Filter by specific group
+    const filteredFeeds = (feedsData || []).filter((feed: any) => feed.group_id === groupId);
+
+    console.log('🎯 [FEEDSERVICE DEBUG] Group feeds after filtering:', {
+      originalCount: feedsData?.length || 0,
+      filteredCount: filteredFeeds.length,
+      targetGroupId: groupId
+    })
+
+    const mappedFeeds = filteredFeeds.map((feed: any) => ({
       id: feed.id,
       url: feed.url,
       title: feed.title,
@@ -249,6 +331,67 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
       };
     }
 
+    // Handle personal feed items with simplified approach
+    if (groupId === null || groupId === undefined) {
+      // For personal dashboard, show all feed items from feeds owned by the user
+      console.log('🔄 [FEEDSERVICE DEBUG] Getting all feed items for personal dashboard...')
+      
+      const { data: allItems, error: itemsError } = await supabase
+        .from('feed_items')
+        .select(`
+          *,
+          feeds!inner(
+            id,
+            title,
+            url,
+            integration_name,
+            integration_alias,
+            user_id
+          )
+        `)
+        .eq('feeds.user_id', user.id)
+        .order('pub_date', { ascending: false })
+        .limit(50);
+
+      console.log('📊 [FEEDSERVICE DEBUG] All user feed items query response:', {
+        error: itemsError,
+        itemsCount: allItems?.length || 0
+      })
+
+      if (itemsError) {
+        console.error('❌ [FEEDSERVICE DEBUG] All user feed items query error:', itemsError)
+        return {
+          items: [],
+          error: {
+            code: 'DB_ERROR',
+            message: itemsError.message,
+            details: itemsError,
+          },
+        };
+      }
+
+      const mappedItems = (allItems || []).map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        link: item.link,
+        content: item.content || '',
+        contentSnippet: item.content_snippet,
+        pubDate: item.pub_date,
+        integrationName: item.integration_name,
+        integrationAlias: item.integration_alias || '',
+        createdAt: item.created_at,
+        feedInfo: {
+          id: item.feeds.id,
+          title: item.feeds.title,
+          url: item.feeds.url,
+        }
+      }));
+
+      console.log('✅ [FEEDSERVICE DEBUG] Using all user feed items:', mappedItems.length)
+      return { items: mappedItems };
+    }
+
+    // For specific group items, use existing logic
     let query = supabase
       .from('feed_items')
       .select(`
@@ -261,18 +404,9 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
           integration_alias
         )
       `)
-      .eq('user_id', user.id) // Always filter by current user
+      .eq('group_id', groupId)
       .order('pub_date', { ascending: false })
       .limit(50);
-
-    // Filter by group context
-    if (groupId === null || groupId === undefined) {
-      // Personal feed items only (group_id IS NULL)
-      query = query.is('group_id', null);
-    } else {
-      // Specific group feed items only
-      query = query.eq('group_id', groupId);
-    }
 
     const { data: itemsData, error } = await query;
 
@@ -291,13 +425,12 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
       id: item.id,
       title: item.title,
       link: item.link,
-      content: item.content,
+      content: item.content || '',
       contentSnippet: item.content_snippet,
       pubDate: item.pub_date,
       integrationName: item.integration_name,
-      integrationAlias: item.integration_alias,
+      integrationAlias: item.integration_alias || '',
       createdAt: item.created_at,
-      // Add feed metadata
       feedInfo: {
         id: item.feeds.id,
         title: item.feeds.title,
@@ -321,14 +454,61 @@ export async function getAllFeedItems(groupId?: string | null): Promise<{ items:
 // Specific function for public group feed items
 export async function getPublicGroupFeedItems(groupId: string): Promise<{ items: FeedItem[]; error?: FeedError }> {
   try {
+    // Clean the group ID to remove any unwanted characters
+    const cleanedGroupId = cleanGroupId(groupId);
+    
+    console.log('🔍 [DEBUG] getPublicGroupFeedItems called with:', {
+      originalGroupId: groupId,
+      cleanedGroupId: cleanedGroupId
+    });
+    
+    // First, let's check if the group is actually public
+    const { data: groupCheck, error: groupError } = await supabase
+      .rpc('is_group_public', { group_uuid: cleanedGroupId });
+    
+    console.log('🔐 [DEBUG] Group public check:', {
+      isPublic: groupCheck,
+      error: groupError
+    });
+    
+    if (groupError) {
+      console.error('❌ [DEBUG] Group check error:', groupError);
+      return {
+        items: [],
+        error: {
+          code: 'DB_ERROR',
+          message: `Group check failed: ${groupError.message}`,
+          details: groupError,
+        },
+      };
+    }
+    
+    if (!groupCheck) {
+      console.warn('⚠️ [DEBUG] Group is not public or does not exist');
+      return {
+        items: [],
+        error: {
+          code: 'ACCESS_DENIED',
+          message: 'Group is not public or does not exist',
+        },
+      };
+    }
+    
     // Use RPC function to get public group feed items
     const { data: itemsData, error } = await supabase
       .rpc('get_public_group_recent_items', { 
-        group_uuid: groupId,
+        group_uuid: cleanedGroupId,
         item_limit: 50
       });
 
+    console.log('📊 [DEBUG] RPC response:', {
+      error: error,
+      dataLength: itemsData?.length || 0,
+      sampleData: itemsData?.slice(0, 2)
+    });
+
     if (error) {
+      console.error('❌ [DEBUG] RPC error:', error);
       return {
         items: [],
         error: {
@@ -357,8 +537,14 @@ export async function getPublicGroupFeedItems(groupId: string): Promise<{ items:
       }
     }));
 
+    console.log('✅ [DEBUG] Mapped items:', {
+      count: mappedItems.length,
+      sampleMapped: mappedItems.slice(0, 2)
+    });
+
     return { items: mappedItems };
   } catch (error) {
+    console.error('💥 [DEBUG] Exception in getPublicGroupFeedItems:', error);
     return {
       items: [],
       error: {
@@ -392,6 +578,7 @@ export async function getAllFeedItemsPaginated(
       };
     }
 
+    // Handle personal vs group feed items
     let query = supabase
       .from('feed_items')
       .select(`
@@ -401,19 +588,19 @@ export async function getAllFeedItemsPaginated(
           title,
           url,
           integration_name,
-          integration_alias
+          integration_alias,
+          user_id
         )
       `, { count: 'exact' })
-      .eq('user_id', user.id) // Always filter by current user
       .order('pub_date', { ascending: false })
       .range(offset, offset + limit - 1);
 
-    // Filter by context: personal feed items or specific group feed items
+    // Filter by context - personal vs group
     if (groupId === null || groupId === undefined) {
-      // Personal feed items only
-      query = query.is('group_id', null);
+      // Personal feed items - items from feeds owned by the user
+      query = query.eq('feeds.user_id', user.id);
     } else {
-      // Specific group feed items only
+      // Group feed items - items with specific group_id
       query = query.eq('group_id', groupId);
     }
 
@@ -437,15 +624,15 @@ export async function getAllFeedItemsPaginated(
       };
     }
 
-    const mappedItems = (items || []).map(item => ({
+    const mappedItems = (items || []).map((item: any) => ({
       id: item.id,
       title: item.title,
       link: item.link,
-      content: item.content,
+      content: item.content || '',
       contentSnippet: item.content_snippet,
       pubDate: item.pub_date,
       integrationName: item.integration_name,
-      integrationAlias: item.integration_alias,
+      integrationAlias: item.integration_alias || '',
       createdAt: item.created_at,
       // Add feed metadata
       feedInfo: {
@@ -615,18 +802,24 @@ export async function getIntegrationsWithCounts(groupId?: string | null): Promis
       };
     }
 
+    // Handle personal vs group integrations
     let query = supabase
       .from('feed_items')
-      .select('integration_name, integration_alias')
-      .eq('user_id', user.id) // Always filter by current user
+      .select(`
+        integration_name, 
+        integration_alias,
+        feeds!inner(
+          user_id
+        )
+      `)
       .order('integration_name');
 
-    // Filter by context: personal feed items or specific group feed items
+    // Filter by context - personal vs group
     if (groupId === null || groupId === undefined) {
-      // Personal feed items only
-      query = query.is('group_id', null);
+      // Personal integrations - items from feeds owned by the user
+      query = query.eq('feeds.user_id', user.id);
     } else {
-      // Specific group feed items only
+      // Group integrations - items with specific group_id
       query = query.eq('group_id', groupId);
     }
 
@@ -646,7 +839,7 @@ export async function getIntegrationsWithCounts(groupId?: string | null): Promis
     // Group by integration name and count items
     const integrationCounts = new Map<string, { displayName: string; count: number }>();
     
-    (data || []).forEach(item => {
+    (data || []).forEach((item: any) => {
       const name = item.integration_name;
       const displayName = item.integration_alias || item.integration_name;
       

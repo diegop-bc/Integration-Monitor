@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './contexts/AuthContext'
 import { GroupProvider } from './contexts/GroupContext'
 import { AuthGuard } from './components/auth/AuthGuard'
+import { PublicGroupGuard } from './components/PublicGroupGuard'
 import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
 import FeedView from './pages/FeedView'
@@ -22,32 +23,6 @@ const queryClient = new QueryClient({
   },
 })
 
-// Protected routes wrapper component
-function ProtectedRoutes() {
-  return (
-    <GroupProvider>
-      <Layout>
-        <Routes>
-          {/* Personal workspace routes */}
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/personal" element={<Dashboard />} />
-          <Route path="/personal/feed/:feedId" element={<FeedView />} />
-          <Route path="/personal/updates" element={<UnifiedFeedPage />} />
-          
-          {/* Group workspace routes */}
-          <Route path="/group/:groupId" element={<Dashboard />} />
-          <Route path="/group/:groupId/feed/:feedId" element={<FeedView />} />
-          <Route path="/group/:groupId/updates" element={<UnifiedFeedPage />} />
-          
-          {/* Legacy routes for backward compatibility */}
-          <Route path="/feed/:feedId" element={<FeedView />} />
-          <Route path="/updates" element={<UnifiedFeedPage />} />
-        </Routes>
-      </Layout>
-    </GroupProvider>
-  );
-}
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -60,10 +35,96 @@ function App() {
             <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
             <Route path="/confirm-email" element={<ConfirmEmailPage />} />
             
-            {/* Protected routes */}
-            <Route path="/*" element={
+            {/* Group routes that can be public or private */}
+            <Route path="/group/:groupId" element={
+              <PublicGroupGuard>
+                <GroupProvider>
+                  <Layout>
+                    <Dashboard />
+                  </Layout>
+                </GroupProvider>
+              </PublicGroupGuard>
+            } />
+            
+            <Route path="/group/:groupId/feed/:feedId" element={
+              <PublicGroupGuard>
+                <GroupProvider>
+                  <Layout>
+                    <FeedView />
+                  </Layout>
+                </GroupProvider>
+              </PublicGroupGuard>
+            } />
+            
+            <Route path="/group/:groupId/updates" element={
+              <PublicGroupGuard>
+                <GroupProvider>
+                  <Layout>
+                    <UnifiedFeedPage />
+                  </Layout>
+                </GroupProvider>
+              </PublicGroupGuard>
+            } />
+            
+            {/* Protected personal routes */}
+            <Route path="/" element={
               <AuthGuard>
-                <ProtectedRoutes />
+                <GroupProvider>
+                  <Layout>
+                    <Dashboard />
+                  </Layout>
+                </GroupProvider>
+              </AuthGuard>
+            } />
+            
+            <Route path="/personal" element={
+              <AuthGuard>
+                <GroupProvider>
+                  <Layout>
+                    <Dashboard />
+                  </Layout>
+                </GroupProvider>
+              </AuthGuard>
+            } />
+            
+            <Route path="/personal/feed/:feedId" element={
+              <AuthGuard>
+                <GroupProvider>
+                  <Layout>
+                    <FeedView />
+                  </Layout>
+                </GroupProvider>
+              </AuthGuard>
+            } />
+            
+            <Route path="/personal/updates" element={
+              <AuthGuard>
+                <GroupProvider>
+                  <Layout>
+                    <UnifiedFeedPage />
+                  </Layout>
+                </GroupProvider>
+              </AuthGuard>
+            } />
+            
+            {/* Legacy routes for backward compatibility */}
+            <Route path="/feed/:feedId" element={
+              <AuthGuard>
+                <GroupProvider>
+                  <Layout>
+                    <FeedView />
+                  </Layout>
+                </GroupProvider>
+              </AuthGuard>
+            } />
+            
+            <Route path="/updates" element={
+              <AuthGuard>
+                <GroupProvider>
+                  <Layout>
+                    <UnifiedFeedPage />
+                  </Layout>
+                </GroupProvider>
               </AuthGuard>
             } />
           </Routes>

@@ -101,6 +101,7 @@ export interface UpdateGroupRequest {
 
 export interface GroupContextType {
   currentGroup: GroupWithMembership | null;
+  currentPublicGroup: PublicGroup | null;
   userGroups: GroupWithMembership[];
   isLoading: boolean;
   switchToGroup: (groupId: string | null) => Promise<void>;

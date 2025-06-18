@@ -45,24 +45,44 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   const checkPublicGroup = useCallback(async (groupId: string) => {
     if (isCheckingPublicGroup) return; // Prevent multiple concurrent checks
     
+    console.log('🔍 [GroupContext DEBUG] checkPublicGroup called:', {
+      groupId,
+      isUserAuthenticated: !!user,
+      isCheckingPublicGroup
+    });
+    
     try {
       setIsCheckingPublicGroup(true);
       const publicGroup = await groupService.getPublicGroup(groupId);
+      
+      console.log('📊 [GroupContext DEBUG] Public group result:', {
+        found: !!publicGroup,
+        groupName: publicGroup?.name,
+        isPublic: publicGroup?.is_public,
+        userRole: publicGroup?.user_role
+      });
       
       if (publicGroup) {
         setCurrentPublicGroup(publicGroup);
         setCurrentGroup(null);
         localStorage.removeItem(STORAGE_KEY);
       } else {
-        navigate('/personal', { replace: true });
+        // Only redirect to personal if user is authenticated
+        // If not authenticated, let the PublicGroupGuard handle the redirect to login
+        if (user) {
+          navigate('/personal', { replace: true });
+        }
       }
     } catch (error) {
       console.error('Error checking public group:', error);
-      navigate('/personal', { replace: true });
+      // Only redirect to personal if user is authenticated
+      if (user) {
+        navigate('/personal', { replace: true });
+      }
     } finally {
       setIsCheckingPublicGroup(false);
     }
-  }, [navigate, isCheckingPublicGroup]);
+  }, [navigate, isCheckingPublicGroup, user]);
 
   // Load user's groups - simplified effect
   useEffect(() => {
@@ -100,8 +120,8 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   // Simplified URL sync - only when necessary
   useEffect(() => {
-    // Skip if not initialized or still loading
-    if (!isInitializedRef.current || isLoading || isCheckingPublicGroup) {
+    // Skip if still loading or checking public group
+    if (isLoading || isCheckingPublicGroup) {
       return;
     }
 
@@ -112,19 +132,28 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     lastGroupIdRef.current = groupIdFromUrl;
 
     if (groupIdFromUrl) {
-      // Check user's groups first
-      const urlGroup = userGroups.find(g => g.id === groupIdFromUrl);
-      
-      if (urlGroup) {
-        if (urlGroup.id !== currentGroup?.id) {
-          setCurrentGroup(urlGroup);
-          setCurrentPublicGroup(null);
-          localStorage.setItem(STORAGE_KEY, urlGroup.id);
+      if (user) {
+        // User is authenticated - check user's groups first
+        if (isInitializedRef.current) {
+          const urlGroup = userGroups.find(g => g.id === groupIdFromUrl);
+          
+          if (urlGroup) {
+            if (urlGroup.id !== currentGroup?.id) {
+              setCurrentGroup(urlGroup);
+              setCurrentPublicGroup(null);
+              localStorage.setItem(STORAGE_KEY, urlGroup.id);
+            }
+          } else if (!currentPublicGroup) {
+            // Not in user groups, check if public
+            localStorage.removeItem(STORAGE_KEY);
+            checkPublicGroup(groupIdFromUrl);
+          }
         }
-      } else if (user && !currentPublicGroup) {
-        // Not in user groups, check if public
-        localStorage.removeItem(STORAGE_KEY);
-        checkPublicGroup(groupIdFromUrl);
+      } else {
+        // No user - check if it's a public group
+        if (!currentPublicGroup) {
+          checkPublicGroup(groupIdFromUrl);
+        }
       }
     } else {
       // No group ID in URL - personal workspace
@@ -134,7 +163,15 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
         localStorage.removeItem(STORAGE_KEY);
       }
     }
-  }, [groupIdFromUrl, userGroups, currentGroup?.id, currentPublicGroup?.id, isLoading, isCheckingPublicGroup, user, checkPublicGroup]);
+  }, [groupIdFromUrl, userGroups, currentGroup?.id, currentPublicGroup?.id, isLoading, isCheckingPublicGroup, user, checkPublicGroup, isInitializedRef.current]);
+
+  // Initialize for non-authenticated users
+  useEffect(() => {
+    if (!user && !isInitializedRef.current) {
+      setIsLoading(false);
+      isInitializedRef.current = true;
+    }
+  }, [user]);
 
   const switchToGroup = useCallback(async (groupId: string | null) => {    
     if (groupId === null) {
@@ -288,29 +325,58 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   }, [refreshGroups]);
 
   // Memoize the context value to prevent unnecessary re-renders
-  const value: GroupContextType = useMemo(() => ({
-    currentGroup: currentGroup || (currentPublicGroup ? {
-      ...currentPublicGroup,
-      role: currentPublicGroup.user_role as 'owner' | 'admin' | 'member' | 'viewer',
-      member_count: currentPublicGroup.member_count,
-      integration_count: currentPublicGroup.feed_count,
-      is_owner: currentPublicGroup.user_role === 'owner',
-      can_access: true,
-      owner_id: '',
-      updated_at: currentPublicGroup.created_at
-    } : null),
-    userGroups,
-    isLoading,
-    switchToGroup,
-    createGroup,
-    updateGroup,
-    deleteGroup,
-    refreshGroups,
-    syncWithUrl,
-    getPublicGroup,
-    joinPublicGroup,
-    toggleGroupVisibility,
-  }), [
+  const value: GroupContextType = useMemo(() => {
+    console.log('🔄 [GroupContext DEBUG] Context value memoization:', {
+      hasCurrentGroup: !!currentGroup,
+      hasCurrentPublicGroup: !!currentPublicGroup,
+      currentGroupName: currentGroup?.name,
+      currentPublicGroupName: currentPublicGroup?.name,
+      isUserAuthenticated: !!user
+    });
+
+    // For authenticated users: merge public group into currentGroup if they're a member
+    // For non-authenticated users: keep currentGroup separate from public groups
+    let contextCurrentGroup = currentGroup;
+    
+    if (user && !currentGroup && currentPublicGroup && currentPublicGroup.user_role !== 'none') {
+      // Authenticated user who is a member of a public group
+      contextCurrentGroup = {
+        ...currentPublicGroup,
+        role: currentPublicGroup.user_role as 'owner' | 'admin' | 'member' | 'viewer',
+        member_count: currentPublicGroup.member_count,
+        integration_count: currentPublicGroup.feed_count,
+        is_owner: currentPublicGroup.user_role === 'owner',
+        can_access: true,
+        owner_id: '',
+        updated_at: currentPublicGroup.created_at
+      };
+    }
+    // For non-authenticated users or users who are not members: keep currentGroup as null
+    // This will allow GroupDashboard to properly detect and show PublicGroupView
+
+    console.log('🎯 [GroupContext DEBUG] Final context group:', {
+      hasContextCurrentGroup: !!contextCurrentGroup,
+      contextGroupName: contextCurrentGroup?.name,
+      contextGroupRole: contextCurrentGroup?.role,
+      shouldShowPublicView: !user || (currentPublicGroup?.user_role === 'none')
+    });
+
+    return {
+      currentGroup: contextCurrentGroup,
+      currentPublicGroup,
+      userGroups,
+      isLoading,
+      switchToGroup,
+      createGroup,
+      updateGroup,
+      deleteGroup,
+      refreshGroups,
+      syncWithUrl,
+      getPublicGroup,
+      joinPublicGroup,
+      toggleGroupVisibility,
+    };
+  }, [
     currentGroup,
     currentPublicGroup,
     userGroups,
@@ -323,7 +389,8 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     syncWithUrl,
     getPublicGroup,
     joinPublicGroup,
-    toggleGroupVisibility
+    toggleGroupVisibility,
+    user
   ]);
 
   return (

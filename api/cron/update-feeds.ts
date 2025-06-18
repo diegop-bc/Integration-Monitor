@@ -77,21 +77,28 @@ function sanitizeHtmlToText(html: string): string {
 }
 
 // Función para parsear un feed RSS
-async function parseFeedFromUrl(url: string, integrationName: string, integrationAlias?: string) {
+async function parseFeedFromUrl(url: string, integrationName: string, integrationAlias?: string, feedId?: string) {
   try {
     const feed = await parser.parseURL(url);
     
-    const items = feed.items.map((item) => ({
-      id: item.guid || item.link || `${url}-${item.title}`,
-      title: sanitizeHtmlToText(item.title || 'Untitled'),
-      link: item.link || '',
-      content: sanitizeHtmlToText(item.content || item.contentSnippet || ''),
-      contentSnippet: sanitizeHtmlToText(item.contentSnippet || ''),
-      pubDate: item.pubDate || new Date().toISOString(),
-      integrationName,
-      integrationAlias,
-      createdAt: new Date().toISOString(),
-    }));
+    const items = feed.items.map((item) => {
+      // Generar ID original del item
+      const originalId = item.guid || item.link || `${url}-${item.title}`;
+      // Crear ID compuesto con feed ID para evitar duplicados entre usuarios
+      const composedId = feedId ? `${feedId}-${originalId}` : originalId;
+      
+      return {
+        id: composedId,
+        title: sanitizeHtmlToText(item.title || 'Untitled'),
+        link: item.link || '',
+        content: sanitizeHtmlToText(item.content || item.contentSnippet || ''),
+        contentSnippet: sanitizeHtmlToText(item.contentSnippet || ''),
+        pubDate: item.pubDate || new Date().toISOString(),
+        integrationName,
+        integrationAlias,
+        createdAt: new Date().toISOString(),
+      };
+    });
 
     return { items, error: null };
   } catch (error) {
@@ -112,7 +119,8 @@ async function updateFeed(feed: any): Promise<UpdateResult> {
   const { items, error: parseError } = await parseFeedFromUrl(
     feed.url,
     feed.integration_name,
-    feed.integration_alias
+    feed.integration_alias,
+    feed.id
   );
 
   if (parseError) {

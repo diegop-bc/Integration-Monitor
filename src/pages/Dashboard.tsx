@@ -45,15 +45,21 @@ const Dashboard = React.memo(() => {
   })
 
   // Listen for feed updates - ALWAYS call hooks
-  useFeedUpdates()
+  useFeedUpdates(undefined, null) // null = personal feeds context
 
   // Handle manual update
   const handleManualUpdate = useCallback(async () => {
     const result = await updateAllFeeds()
     if (result.success) {
-      // Invalidate queries to refresh the UI
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
+      // Invalidate only personal queries, not all queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
     }
   }, [updateAllFeeds, queryClient, user?.id])
 
@@ -62,8 +68,15 @@ const Dashboard = React.memo(() => {
     mutationFn: ({ url, name, alias }: { url: string; name: string; alias?: string }) =>
       addFeed(url, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
+      // Invalidate only personal queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
       setFeedUrl('')
       setIntegrationName('')
       setIntegrationAlias('')
@@ -76,8 +89,15 @@ const Dashboard = React.memo(() => {
     mutationFn: ({ id, name, alias }: { id: string; name: string; alias?: string }) =>
       updateFeed(id, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
+      // Invalidate only personal queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
       setEditingFeed(null)
       setEditName('')
       setEditAlias('')
@@ -88,8 +108,15 @@ const Dashboard = React.memo(() => {
   const deleteFeedMutation = useMutation({
     mutationFn: (id: string) => deleteFeed(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, 'personal'] })
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, 'personal'] })
+      // Invalidate only personal queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, 'personal'],
+        exact: true 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, 'personal'],
+        exact: true 
+      })
       setDeletingFeed(null)
     },
   })
@@ -154,6 +181,16 @@ const Dashboard = React.memo(() => {
   const feeds = feedsData?.feeds || []
   const recentItems = itemsData?.items?.slice(0, 8) || []
 
+  // Debug logs to understand the issue (keep for now until confirmed working)
+  console.log('🏠 [DASHBOARD DEBUG] Dashboard personal mode:', {
+    isGroupMode,
+    userAuthenticated: !!user,
+    feedsLoading,
+    feedsCount: feeds.length,
+    itemsLoading,
+    itemsCount: recentItems.length
+  })
+
   const getIntegrationColor = useCallback((integrationName: string) => {
     const colors = [
       { bg: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', text: 'white', accent: '#3b82f6' },
@@ -209,7 +246,7 @@ const Dashboard = React.memo(() => {
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900">
-                Your Integrations ({feeds.length})
+                Tus Integraciones ({feeds.length})
               </h2>
               <div className="flex gap-3">
                 {/* Manual Update Button */}
@@ -287,13 +324,13 @@ const Dashboard = React.memo(() => {
                 <svg className="icon-xl text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
                 </svg>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No integrations yet</h3>
-                <p className="text-gray-500 mb-4">Add your first integration to start monitoring updates</p>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No hay integraciones aún</h3>
+                <p className="text-gray-500 mb-4">Agrega tu primera integración para empezar a monitorear actualizaciones</p>
                 <button
                   onClick={() => setShowAddForm(true)}
                   className="modern-button"
                 >
-                  Add Your First Integration
+                  Agregar Primera Integración
                 </button>
               </div>
             ) : (
@@ -500,10 +537,10 @@ const Dashboard = React.memo(() => {
       {/* Timeline Section */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-white">Recent Updates</h2>
+          <h2 className="text-2xl font-bold text-white">Actualizaciones Recientes</h2>
           {recentItems.length > 0 && (
             <Link to={updatesLink} className="secondary-button">
-              View All Updates →
+              Ver Todas las Actualizaciones →
             </Link>
           )}
         </div>
@@ -519,8 +556,8 @@ const Dashboard = React.memo(() => {
             <svg className="icon-xl text-white/50 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
             </svg>
-            <h3 className="text-xl font-semibold text-white mb-2">No updates yet</h3>
-            <p className="text-blue-200">Add some integrations to see their latest updates here</p>
+            <h3 className="text-xl font-semibold text-white mb-2">No hay actualizaciones aún</h3>
+            <p className="text-blue-200">Agrega algunas integraciones para ver sus últimas actualizaciones aquí</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

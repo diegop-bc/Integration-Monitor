@@ -1,10 +1,9 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useGroup } from '../../contexts/GroupContext';
-import { useAuth } from '../../contexts/AuthContext';
+import { useQuery } from '@tanstack/react-query';
 import { groupService } from '../../services/groupService';
 import { getPublicGroupFeedItems } from '../../services/feedService';
 import { sanitizeAndTruncate } from '../../utils/textSanitizer';
+import { PublicGroupStats } from './PublicGroupStats';
+import { JoinGroupButton } from './JoinGroupButton';
 import type { PublicGroup, PublicGroupFeedsResponse } from '../../types/group';
 import type { FeedItem } from '../../types/feed';
 
@@ -13,11 +12,11 @@ interface PublicGroupViewProps {
 }
 
 export function PublicGroupView({ group }: PublicGroupViewProps) {
-  const { user } = useAuth();
-  const { joinPublicGroup } = useGroup();
-  const queryClient = useQueryClient();
-  const [isJoining, setIsJoining] = useState(false);
-  const [joinResult, setJoinResult] = useState<{ success: boolean; message: string } | null>(null);
+  console.log('🏠 [DEBUG] PublicGroupView rendered with group:', {
+    groupId: group.id,
+    groupName: group.name,
+    isPublic: group.is_public
+  });
 
   // Fetch public group feeds
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
@@ -28,7 +27,18 @@ export function PublicGroupView({ group }: PublicGroupViewProps) {
   // Fetch recent feed items for public group using the specific function
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
     queryKey: ['publicGroupItems', group.id],
-    queryFn: () => getPublicGroupFeedItems(group.id),
+    queryFn: () => {
+      console.log('🔄 [DEBUG] Fetching public group items for:', group.id);
+      return getPublicGroupFeedItems(group.id);
+    },
+  });
+
+  console.log('📋 [DEBUG] Query states:', {
+    feedsLoading,
+    itemsLoading,
+    feedsCount: feedsData?.length || 0,
+    itemsCount: itemsData?.items?.length || 0,
+    itemsError: itemsData?.error
   });
 
   const feeds = feedsData || [];
@@ -79,35 +89,6 @@ export function PublicGroupView({ group }: PublicGroupViewProps) {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const handleJoinGroup = async () => {
-    if (!user) {
-      // Redirect to login if not authenticated
-      window.location.href = '/login';
-      return;
-    }
-
-    setIsJoining(true);
-    setJoinResult(null);
-
-    try {
-      const result = await joinPublicGroup(group.id);
-      setJoinResult(result);
-      
-      if (result.success) {
-        // Refresh the page to show the group as a member
-        window.location.reload();
-      }
-    } catch (error) {
-      console.error('Failed to join group:', error);
-      setJoinResult({
-        success: false,
-        message: 'Failed to join group. Please try again.'
-      });
-    } finally {
-      setIsJoining(false);
-    }
-  };
-
   return (
     <div className="min-h-screen gradient-bg">
       {/* Public Group Header */}
@@ -141,30 +122,10 @@ export function PublicGroupView({ group }: PublicGroupViewProps) {
               </div>
             </div>
             
-            {/* Join Button */}
-            {group.can_join && group.user_role === 'none' && (
-              <div className="flex flex-col items-end gap-2">
-                <button
-                  onClick={handleJoinGroup}
-                  disabled={isJoining}
-                  className="modern-button bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isJoining ? 'Joining...' : user ? 'Join Group' : 'Sign Up to Join'}
-                </button>
-                
-                {joinResult && (
-                  <div className={`text-sm px-3 py-1 rounded-md ${
-                    joinResult.success 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {joinResult.message}
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {group.user_role !== 'none' && (
+            {/* Join Button or Member Status */}
+            {group.user_role === 'none' ? (
+              <JoinGroupButton group={group} />
+            ) : (
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
                   You are a {group.user_role}
@@ -174,52 +135,8 @@ export function PublicGroupView({ group }: PublicGroupViewProps) {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                </div>
-                <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-gray-900">{group.member_count}</h3>
-                  <p className="text-sm text-gray-600">
-                    {group.member_count === 1 ? 'Member' : 'Members'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
-                  </svg>
-                </div>
-                <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-gray-900">{group.feed_count}</h3>
-                  <p className="text-sm text-gray-600">
-                    {group.feed_count === 1 ? 'Integration' : 'Integrations'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-gray-900">{group.total_feed_items}</h3>
-                  <p className="text-sm text-gray-600">Total Updates</p>
-                </div>
-              </div>
-            </div>
+          <div className="mt-6">
+            <PublicGroupStats group={group} />
           </div>
         </div>
       </div>

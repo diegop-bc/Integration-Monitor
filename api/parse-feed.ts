@@ -74,7 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { url, integrationName, integrationAlias } = req.body;
+    const { url, integrationName, integrationAlias, feedId } = req.body;
 
     if (!url || !integrationName) {
       res.status(400).json({ error: 'URL and integrationName are required' });
@@ -83,17 +83,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const feed = await parser.parseURL(url);
     
-    const items = feed.items.map((item) => ({
-      id: item.guid || item.link || `${url}-${item.title}`,
-      title: sanitizeHtmlToText(item.title || 'Untitled'),
-      link: item.link || '',
-      content: sanitizeHtmlToText(item.content || item.contentSnippet || ''),
-      contentSnippet: sanitizeHtmlToText(item.contentSnippet || ''),
-      pubDate: item.pubDate || new Date().toISOString(),
-      integrationName,
-      integrationAlias,
-      createdAt: new Date().toISOString(),
-    }));
+    const items = feed.items.map((item) => {
+      // Generar ID original del item
+      const originalId = item.guid || item.link || `${url}-${item.title}`;
+      // Crear ID compuesto con feed ID si está disponible
+      const composedId = feedId ? `${feedId}-${originalId}` : originalId;
+      
+      return {
+        id: composedId,
+        title: sanitizeHtmlToText(item.title || 'Untitled'),
+        link: item.link || '',
+        content: sanitizeHtmlToText(item.content || item.contentSnippet || ''),
+        contentSnippet: sanitizeHtmlToText(item.contentSnippet || ''),
+        pubDate: item.pubDate || new Date().toISOString(),
+        integrationName,
+        integrationAlias,
+        createdAt: new Date().toISOString(),
+      };
+    });
 
     res.status(200).json({ items });
   } catch (error) {

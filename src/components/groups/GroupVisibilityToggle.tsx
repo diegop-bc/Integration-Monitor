@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useGroup } from '../../contexts/GroupContext';
 import { canToggleGroupVisibility } from '../../utils/permissions';
 import type { GroupWithMembership } from '../../types/group';
@@ -28,7 +28,6 @@ function ConfirmVisibilityModal({
   if (!isOpen) return null;
 
   const isGoingPublic = newVisibility;
-  const isGoingPrivate = !newVisibility;
 
   return (
     <div

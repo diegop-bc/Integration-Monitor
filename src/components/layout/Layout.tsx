@@ -66,11 +66,13 @@ const Layout = ({ children }: LayoutProps) => {
               </div>
             </Link>
             
-            {/* Group Switcher */}
-            <div className="flex-1 max-w-sm mx-8">
-              {/* Only render GroupSwitcher if we have group context */}
-              {hasGroupContext && <GroupSwitcher />}
-            </div>
+            {/* Group Switcher - Only show if user is authenticated */}
+            {user && (
+              <div className="flex-1 max-w-sm mx-8">
+                {/* Only render GroupSwitcher if we have group context */}
+                {hasGroupContext && <GroupSwitcher />}
+              </div>
+            )}
             
             <div className="flex items-center gap-6">
               <nav className="flex items-center gap-4">
@@ -99,34 +101,46 @@ const Layout = ({ children }: LayoutProps) => {
                 </Link>
               </nav>
 
-              {/* User Profile Section */}
-              <div className="flex items-center gap-3 pl-6 border-l border-gray-200">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-blue-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-sm font-semibold">
-                      {user?.email?.charAt(0).toUpperCase() || 'U'}
-                    </span>
+              {/* User Profile Section - Only show if user is authenticated */}
+              {user ? (
+                <div className="flex items-center gap-3 pl-6 border-l border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-blue-500 rounded-full flex items-center justify-center">
+                      <span className="text-white text-sm font-semibold">
+                        {user?.email?.charAt(0).toUpperCase() || 'U'}
+                      </span>
+                    </div>
+                    <div className="hidden sm:block">
+                      <p className="text-sm font-medium text-gray-900">
+                        {user?.email?.split('@')[0] || 'User'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {user?.email}
+                      </p>
+                    </div>
                   </div>
-                  <div className="hidden sm:block">
-                    <p className="text-sm font-medium text-gray-900">
-                      {user?.email?.split('@')[0] || 'User'}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {user?.email}
-                    </p>
-                  </div>
+                  
+                  <button
+                    onClick={handleSignOut}
+                    className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200"
+                    title="Sign out"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                  </button>
                 </div>
-                
-                <button
-                  onClick={handleSignOut}
-                  className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all duration-200"
-                  title="Sign out"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                  </svg>
-                </button>
-              </div>
+              ) : (
+                /* Login button for non-authenticated users */
+                <div className="flex items-center gap-3 pl-6 border-l border-gray-200">
+                  <Link
+                    to="/login"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all duration-200"
+                  >
+                    Sign In
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>

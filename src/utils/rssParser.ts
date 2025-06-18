@@ -1,10 +1,35 @@
 import type { FeedItem, FeedError } from '../types/feed';
 import { sanitizeHtmlToText } from './textSanitizer';
+import { ENV_CONFIG, getEnvironmentInfo } from '../config/environment';
 
-// For development, we'll use a CORS proxy service
-const CORS_PROXY = 'https://corsproxy.io/?';
+// Función para crear un timeout para fetch requests
+function fetchWithTimeout(url: string, options: RequestInit = {}, timeout: number = ENV_CONFIG.fetchTimeout): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Request timeout after ${timeout}ms`));
+    }, timeout);
 
-async function parseRSSContent(xmlContent: string, url: string, integrationName: string, integrationAlias?: string): Promise<FeedItem[]> {
+    fetch(url, { ...options, signal: controller.signal })
+      .then(response => {
+        clearTimeout(timeoutId);
+        resolve(response);
+      })
+      .catch(error => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
+async function parseRSSContent(
+  xmlContent: string, 
+  url: string, 
+  integrationName: string, 
+  integrationAlias?: string,
+  feedId?: string
+): Promise<FeedItem[]> {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlContent, 'text/xml');
   
@@ -48,12 +73,15 @@ async function parseRSSContent(xmlContent: string, url: string, integrationName:
       guid = hashInput || `${url}-${index}`;
     }
 
+    // Crear ID compuesto con feed ID si está disponible
+    const composedId = feedId ? `${feedId}-${guid}` : guid;
+
     // Sanitize HTML content to plain text
     const sanitizedContent = sanitizeHtmlToText(content);
     const sanitizedDescription = sanitizeHtmlToText(description);
 
     items.push({
-      id: guid,
+      id: composedId,
       title: sanitizeHtmlToText(title),
       link,
       content: sanitizedContent,
@@ -78,67 +106,107 @@ async function parseRSSContent(xmlContent: string, url: string, integrationName:
   return items;
 }
 
-export async function parseFeed(url: string, integrationName: string, integrationAlias?: string): Promise<{ items: FeedItem[]; error?: FeedError }> {
+// Función para probar múltiples proxies CORS
+async function fetchWithCorsProxies(url: string): Promise<Response> {
+  const errors: string[] = [];
+  const proxies = ENV_CONFIG.corsProxies;
+  
+  for (let i = 0; i < proxies.length; i++) {
+    const proxy = proxies[i];
+    try {
+      console.log(`🔗 [Debug] Intentando proxy ${i + 1}/${proxies.length}: ${proxy}`);
+      
+      let proxyUrl: string;
+      if (proxy.includes('allorigins.win/get')) {
+        // Para allorigins con respuesta JSON
+        proxyUrl = `${proxy}${encodeURIComponent(url)}`;
+        const response = await fetchWithTimeout(proxyUrl);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.contents) {
+            // Crear una respuesta simulada con el contenido
+            console.log(`✅ [Debug] Proxy exitoso (JSON): ${proxy}`);
+            return new Response(data.contents, { status: 200, statusText: 'OK' });
+          }
+        }
+        throw new Error(`HTTP ${response.status}`);
+      } else {
+        // Para otros proxies que devuelven contenido directo
+        proxyUrl = `${proxy}${encodeURIComponent(url)}`;
+        const response = await fetchWithTimeout(proxyUrl);
+        if (response.ok) {
+          console.log(`✅ [Debug] Proxy exitoso: ${proxy}`);
+          return response;
+        }
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      const errorMsg = `Proxy ${i + 1} (${proxy}) falló: ${error instanceof Error ? error.message : 'Error desconocido'}`;
+      console.error(`❌ [Debug] ${errorMsg}`);
+      errors.push(errorMsg);
+      
+      // Pequeña pausa entre intentos para evitar spam
+      if (i < proxies.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, ENV_CONFIG.retryDelay));
+      }
+    }
+  }
+  
+  throw new Error(`Todos los proxies CORS fallaron:\n${errors.join('\n')}`);
+}
+
+export async function parseFeed(
+  url: string, 
+  integrationName: string, 
+  integrationAlias?: string, 
+  feedId?: string
+): Promise<{ items: FeedItem[]; error?: FeedError }> {
   try {
+    const envInfo = getEnvironmentInfo();
     console.log(`🌐 [Debug] Iniciando parseo de feed: ${integrationName} - ${url}`);
+    console.log(`🔧 [Debug] Información del entorno:`, envInfo);
     
-    // TEMPORARY: Always use CORS proxy to avoid serverless function issues
-    const proxyUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
-    console.log(`🔗 [Debug] Usando CORS proxy: ${proxyUrl}`);
-    
-    const response = await fetch(proxyUrl);
-    
-    if (!response.ok) {
-      console.error(`❌ [Debug] CORS proxy falló (${response.status}), intentando fetch directo...`);
-      // Fallback: try direct fetch (might work for some feeds)
-      const directResponse = await fetch(url);
-      if (!directResponse.ok) {
-        throw new Error(`Both proxy and direct fetch failed. HTTP ${response.status}: ${response.statusText}`);
+    if (envInfo.isDevelopment) {
+      // En desarrollo, usar proxies CORS con múltiples alternativas
+      console.log(`🚀 [Debug] Modo desarrollo: probando ${envInfo.availableProxies} proxies CORS...`);
+      
+      try {
+        const response = await fetchWithCorsProxies(url);
+        const xmlContent = await response.text();
+        console.log(`📄 [Debug] Contenido XML obtenido vía proxy CORS: ${xmlContent.length} caracteres`);
+        
+        // Mostrar una muestra del contenido XML para debug
+        if (xmlContent.length > 0) {
+          const xmlSample = xmlContent.substring(0, 500) + (xmlContent.length > 500 ? '...' : '');
+          console.log(`🔎 [Debug] Muestra del XML:`, xmlSample);
+        }
+        
+        const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias, feedId);
+        console.log(`✅ [Debug] Parseo completado exitosamente vía proxy: ${items.length} items parseados`);
+        return { items };
+      } catch (proxyError) {
+        console.error(`❌ [Debug] Todos los proxies CORS fallaron, intentando fetch directo...`);
+        
+        // Fallback: try direct fetch (might work for some feeds with CORS headers)
+        try {
+          const directResponse = await fetchWithTimeout(url);
+          if (!directResponse.ok) {
+            throw new Error(`HTTP ${directResponse.status}: ${directResponse.statusText}`);
+          }
+          const xmlContent = await directResponse.text();
+          console.log(`📄 [Debug] Contenido XML obtenido vía fetch directo: ${xmlContent.length} caracteres`);
+          const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias, feedId);
+          console.log(`✅ [Debug] Parseo completado exitosamente vía fetch directo: ${items.length} items parseados`);
+          return { items };
+        } catch (directError) {
+          throw new Error(`Proxies CORS y fetch directo fallaron. Proxy error: ${proxyError}. Direct error: ${directError}`);
+        }
       }
-      const xmlContent = await directResponse.text();
-      console.log(`📄 [Debug] Contenido XML obtenido vía fetch directo: ${xmlContent.length} caracteres`);
-      const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
-      console.log(`✅ [Debug] Successfully parsed ${items.length} items via direct fetch`);
-      return { items };
-    }
-    
-    const xmlContent = await response.text();
-    console.log(`📄 [Debug] Contenido XML obtenido vía CORS proxy: ${xmlContent.length} caracteres`);
-    
-    // Mostrar una muestra del contenido XML para debug
-    if (xmlContent.length > 0) {
-      const xmlSample = xmlContent.substring(0, 500) + (xmlContent.length > 500 ? '...' : '');
-      console.log(`🔎 [Debug] Muestra del XML:`, xmlSample);
-    }
-    
-    const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
-    
-    console.log(`✅ [Debug] Parseo completado exitosamente: ${items.length} items parseados`);
-    return { items };
-    
-    // Original conditional logic commented out temporarily
-    /*
-    if (isDevelopment) {
-      // In development, use CORS proxy and client-side parsing
-      const proxyUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
-      console.log('Using CORS proxy:', proxyUrl);
-      
-      const response = await fetch(proxyUrl);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const xmlContent = await response.text();
-      const items = await parseRSSContent(xmlContent, url, integrationName, integrationAlias);
-      
-      console.log('Successfully parsed', items.length, 'items');
-      return { items };
     } else {
-      // In production, use the serverless function
-      console.log('Using serverless function /api/parse-feed');
+      // En producción, usar la función serverless
+      console.log(`🏭 [Debug] Modo producción: usando función serverless /api/parse-feed`);
       
-      const response = await fetch('/api/parse-feed', {
+      const response = await fetchWithTimeout('/api/parse-feed', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -147,27 +215,38 @@ export async function parseFeed(url: string, integrationName: string, integratio
           url,
           integrationName,
           integrationAlias,
+          feedId,
         }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Serverless function error:', errorText);
+        console.error(`❌ [Debug] Error en función serverless:`, errorText);
         
-        const errorData = await response.json().catch(() => ({ error: { message: errorText } }));
-        return {
-          items: [],
-          error: errorData.error || {
-            code: 'NETWORK_ERROR',
-            message: `HTTP ${response.status}: ${response.statusText}`,
-          },
-        };
+        try {
+          const errorData = await response.json();
+          return {
+            items: [],
+            error: errorData.error || {
+              code: 'NETWORK_ERROR',
+              message: `HTTP ${response.status}: ${response.statusText}`,
+            },
+          };
+        } catch {
+          return {
+            items: [],
+            error: {
+              code: 'NETWORK_ERROR',
+              message: `HTTP ${response.status}: ${errorText}`,
+            },
+          };
+        }
       }
 
       const data = await response.json();
+      console.log(`✅ [Debug] Función serverless exitosa: ${data.items?.length || 0} items parseados`);
       return { items: data.items };
     }
-    */
   } catch (error) {
     console.error(`💥 [Debug] Error en parseFeed para ${url}:`, error);
     const feedError: FeedError = {

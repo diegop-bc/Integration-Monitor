@@ -82,17 +82,24 @@ async function updateSingleFeed(feedId: string) {
     // Parsear el feed
     const parsedFeed = await parser.parseURL(feed.url);
     
-    const items = parsedFeed.items.map((item) => ({
-      id: item.guid || item.link || `${feed.url}-${item.title}`,
-      title: sanitizeHtmlToText(item.title || 'Untitled'),
-      link: item.link || '',
-      content: sanitizeHtmlToText(item.content || item.contentSnippet || ''),
-      contentSnippet: sanitizeHtmlToText(item.contentSnippet || ''),
-      pubDate: item.pubDate || new Date().toISOString(),
-      integrationName: feed.integration_name,
-      integrationAlias: feed.integration_alias,
-      createdAt: new Date().toISOString(),
-    }));
+    const items = parsedFeed.items.map((item) => {
+      // Generar ID original del item
+      const originalId = item.guid || item.link || `${feed.url}-${item.title}`;
+      // Crear ID compuesto con feed ID para evitar duplicados entre usuarios
+      const composedId = `${feedId}-${originalId}`;
+      
+      return {
+        id: composedId,
+        title: sanitizeHtmlToText(item.title || 'Untitled'),
+        link: item.link || '',
+        content: sanitizeHtmlToText(item.content || item.contentSnippet || ''),
+        contentSnippet: sanitizeHtmlToText(item.contentSnippet || ''),
+        pubDate: item.pubDate || new Date().toISOString(),
+        integrationName: feed.integration_name,
+        integrationAlias: feed.integration_alias,
+        createdAt: new Date().toISOString(),
+      };
+    });
 
     // Obtener elementos existentes
     const { data: existingItems } = await supabase

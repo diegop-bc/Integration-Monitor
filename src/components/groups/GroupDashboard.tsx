@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useGroup } from '../../contexts/GroupContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getFeeds, getAllFeedItems, addFeed, updateFeed, deleteFeed } from '../../services/feedService';
+import { debugCheckGroupVisibility } from '../../services/groupService';
 import { useFeedUpdates, useManualFeedUpdate } from '../../hooks/useFeedUpdates';
 import { sanitizeAndTruncate } from '../../utils/textSanitizer';
 import { MemberManagement } from './MemberManagement';
@@ -11,7 +12,6 @@ import { PublicGroupView } from './PublicGroupView';
 import { GroupVisibilityToggle } from './GroupVisibilityToggle';
 import { GroupVisibilityBadge } from './GroupVisibilityBadge';
 import type { Feed, FeedItem } from '../../types/feed';
-import type { PublicGroup } from '../../types/group';
 import { 
   getRoleBadgeColor,
   canManageIntegrations
@@ -23,10 +23,20 @@ interface GroupDashboardProps {
 }
 
 export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
-  const { currentGroup, userGroups, syncWithUrl, getPublicGroup } = useGroup();
+  const { currentGroup, currentPublicGroup, userGroups, syncWithUrl } = useGroup();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   
+  console.log('🏗️ [DEBUG] GroupDashboard rendered with:', {
+    groupId,
+    currentGroupId: currentGroup?.id,
+    currentGroupName: currentGroup?.name,
+    currentPublicGroupId: currentPublicGroup?.id,
+    currentPublicGroupName: currentPublicGroup?.name,
+    isUserAuthenticated: !!user,
+    userGroupsCount: userGroups.length
+  });
+
   // Form states for adding integrations - ALWAYS call hooks first
   const [feedUrl, setFeedUrl] = useState('');
   const [integrationName, setIntegrationName] = useState('');
@@ -37,17 +47,12 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
   const [editName, setEditName] = useState('');
   const [editAlias, setEditAlias] = useState('');
   const [deletingFeed, setDeletingFeed] = useState<string | null>(null);
-  const [publicGroup, setPublicGroup] = useState<PublicGroup | null>(null);
-  const [isCheckingPublicGroup, setIsCheckingPublicGroup] = useState(false);
 
   // Memoize values to prevent unnecessary re-renders
-  const shouldCheckPublicGroup = useMemo(() => {
-    return groupId && !currentGroup && userGroups.length > 0 && !userGroups.find(g => g.id === groupId);
-  }, [groupId, currentGroup, userGroups]);
-
   const shouldSyncWithUrl = useMemo(() => {
-    return groupId && !currentGroup && !publicGroup && userGroups.length > 0 && !isCheckingPublicGroup;
-  }, [groupId, currentGroup, publicGroup, userGroups.length, isCheckingPublicGroup]);
+    // Only sync for authenticated users
+    return user && groupId && !currentGroup && !currentPublicGroup && userGroups.length > 0;
+  }, [groupId, currentGroup, currentPublicGroup, userGroups.length, user]);
 
   // Hook for manual feed updates - ALWAYS call hooks
   const { updateAllFeeds, isUpdating, lastUpdate } = useManualFeedUpdate(currentGroup?.id);
@@ -56,26 +61,42 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
     queryKey: ['feeds', user?.id, currentGroup?.id],
     queryFn: () => getFeeds(currentGroup!.id),
-    enabled: !!user && !!currentGroup && !publicGroup,
+    enabled: !!user && !!currentGroup && !currentPublicGroup,
   });
 
   // Fetch recent feed items for the current group - ALWAYS call hooks
   const { data: itemsData, isLoading: itemsLoading } = useQuery({
     queryKey: ['allFeedItems', user?.id, currentGroup?.id],
     queryFn: () => getAllFeedItems(currentGroup!.id),
-    enabled: !!user && !!currentGroup && !publicGroup,
+    enabled: !!user && !!currentGroup && !currentPublicGroup,
   });
 
   // Listen for feed updates - ALWAYS call hooks
-  useFeedUpdates();
+  useFeedUpdates(undefined, currentGroup?.id);
+
+  // Debug: Check group visibility when groupId changes
+  useEffect(() => {
+    if (groupId) {
+      debugCheckGroupVisibility(groupId).then(result => {
+        console.log('🔍 [DEBUG] Group visibility debug result:', result);
+      });
+    }
+  }, [groupId]);
 
   // Add feed mutation - ALWAYS call hooks
   const addFeedMutation = useMutation({
     mutationFn: ({ url, name, alias }: { url: string; name: string; alias?: string }) =>
       addFeed(url, name, alias, currentGroup!.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, currentGroup!.id] });
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, currentGroup!.id] });
+      // Invalidate only current group queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, currentGroup!.id],
+        exact: true 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, currentGroup!.id],
+        exact: true 
+      });
       setFeedUrl('');
       setIntegrationName('');
       setIntegrationAlias('');
@@ -88,8 +109,15 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
     mutationFn: ({ id, name, alias }: { id: string; name: string; alias?: string }) =>
       updateFeed(id, name, alias),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, currentGroup!.id] });
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, currentGroup!.id] });
+      // Invalidate only current group queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, currentGroup!.id],
+        exact: true 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, currentGroup!.id],
+        exact: true 
+      });
       setEditingFeed(null);
       setEditName('');
       setEditAlias('');
@@ -100,40 +128,18 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
   const deleteFeedMutation = useMutation({
     mutationFn: (id: string) => deleteFeed(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, currentGroup!.id] });
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, currentGroup!.id] });
+      // Invalidate only current group queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, currentGroup!.id],
+        exact: true 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, currentGroup!.id],
+        exact: true 
+      });
       setDeletingFeed(null);
     },
   });
-
-  // Check if this is a public group that should be displayed in public view - AFTER all hooks
-  useEffect(() => {
-    // If we have a currentGroup from context, it means the user is a member - use normal view
-    if (currentGroup) {
-      setPublicGroup(null);
-      return;
-    }
-
-    // Only check for public group if conditions are met
-    if (shouldCheckPublicGroup) {
-      setIsCheckingPublicGroup(true);
-      getPublicGroup(groupId!)
-        .then((pubGroup) => {
-          if (pubGroup) {
-            setPublicGroup(pubGroup);
-          } else {
-            setPublicGroup(null);
-          }
-        })
-        .catch((error) => {
-          console.error('Error checking public group:', error);
-          setPublicGroup(null);
-        })
-        .finally(() => {
-          setIsCheckingPublicGroup(false);
-        });
-    }
-  }, [shouldCheckPublicGroup, getPublicGroup, groupId, currentGroup?.id]);
 
   // Sync with group context if we have a groupId prop but no currentGroup - AFTER all hooks
   useEffect(() => {
@@ -146,9 +152,15 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
   const handleManualUpdate = useCallback(async () => {
     const result = await updateAllFeeds();
     if (result.success) {
-      // Invalidate queries to refresh the UI
-      queryClient.invalidateQueries({ queryKey: ['feeds', user?.id, currentGroup?.id] });
-      queryClient.invalidateQueries({ queryKey: ['allFeedItems', user?.id, currentGroup?.id] });
+      // Invalidate only current group queries, not all queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['feeds', user?.id, currentGroup?.id],
+        exact: true 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['allFeedItems', user?.id, currentGroup?.id],
+        exact: true 
+      });
     }
   }, [updateAllFeeds, queryClient, user?.id, currentGroup?.id]);
 
@@ -208,12 +220,14 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
   // NOW we can do conditional rendering AFTER all hooks are called
   
   // Show public group view if we have a public group
-  if (publicGroup) {
-    return <PublicGroupView group={publicGroup} />;
+  if (currentPublicGroup) {
+    console.log('🌍 [DEBUG] Rendering PublicGroupView for:', currentPublicGroup.name);
+    return <PublicGroupView group={currentPublicGroup} />;
   }
 
   // Show loading state while checking for public group or if we're waiting for group context
-  if (isCheckingPublicGroup || (groupId && !currentGroup && userGroups.length === 0)) {
+  if (groupId && !currentGroup && !currentPublicGroup && user && userGroups.length === 0) {
+    console.log('⏳ [DEBUG] Rendering loading state - checking public group or waiting for context');
     return (
       <div className="min-h-screen gradient-bg flex items-center justify-center">
         <div className="text-white text-lg">Loading group...</div>
@@ -223,12 +237,18 @@ export const GroupDashboard = React.memo<GroupDashboardProps>(({ groupId }) => {
 
   // Early return if we don't have required data yet
   if (!currentGroup) {
+    console.log('❌ [DEBUG] No currentGroup found, rendering loading state');
     return (
       <div className="min-h-screen gradient-bg flex items-center justify-center">
         <div className="text-white text-lg">Loading group...</div>
       </div>
     );
   }
+
+  console.log('👥 [DEBUG] Rendering normal GroupDashboard for member view:', {
+    groupName: currentGroup.name,
+    userRole: currentGroup.role
+  });
 
   const feeds = feedsData?.feeds || [];
   const recentItems = itemsData?.items?.slice(0, 8) || [];
